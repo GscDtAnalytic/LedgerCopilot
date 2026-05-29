@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from apps.api.config import settings
 from apps.api.database import async_session_factory
-from apps.api.routers import cases, documents
+from apps.api.routers import cases, documents, reviews
 from apps.api.seed import ensure_default_org
 
 app = FastAPI(
@@ -23,6 +23,7 @@ app = FastAPI(
 
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(cases.router, prefix="/api/v1")
+app.include_router(reviews.router, prefix="/api/v1")
 
 
 @app.on_event("startup")

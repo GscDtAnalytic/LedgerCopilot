@@ -87,3 +87,15 @@ class CasesListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ReviewRequest(BaseModel):
+    action: str  # approve | reject | edit
+    note: str | None = None
+    reviewer_id: str = "anonymous"
+
+
+class ReviewResponse(BaseModel):
+    case_id: str
+    new_status: str
+    action: str
