@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from packages.domain.state_machine import CaseStatus
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.models.base import Base, TimestampMixin, new_uuid
@@ -11,6 +11,12 @@ from apps.api.models.base import Base, TimestampMixin, new_uuid
 
 class Case(Base, TimestampMixin):
     __tablename__ = "cases"
+    __table_args__ = (
+        # Partial index for fast business-key dedup lookups.
+        # NOT unique — the same invoice may be retried; uniqueness is enforced
+        # in the application by checking status (not rejected/received).
+        Index("ix_cases_org_business_key", "organization_id", "business_key"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -22,9 +28,7 @@ class Case(Base, TimestampMixin):
     # Current status — transitions are validated by packages.domain.state_machine
     # before the DB write; every transition also writes an immutable audit_event
     # in the same transaction.
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=CaseStatus.RECEIVED
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=CaseStatus.RECEIVED)
     # document_type populated after CLASSIFIED stage
     document_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Final decision: auto_approve | human_review | reject (populated at DECIDED)
@@ -39,3 +43,6 @@ class Case(Base, TimestampMixin):
     trace_id: Mapped[str] = mapped_column(String(36), nullable=False, default=new_uuid)
     # Short justification for the decision (written by the agent, analyst-language)
     justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Normalized business key for dedup. Populated after extraction.
+    # Format: cnpj:{14d}|doc:{doc}|total:{2dp}[|date:{date}]
+    business_key: Mapped[str | None] = mapped_column(String(512), nullable=True)

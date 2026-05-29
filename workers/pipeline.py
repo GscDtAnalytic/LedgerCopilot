@@ -43,6 +43,7 @@ from apps.api.models import (
 from apps.api.services.prompts import get_active_system_text
 from apps.api.services.tracing import persist_trace
 from packages.agents.extraction import run_extraction
+from packages.domain.business_key import compute_business_key
 from packages.domain.decisions import decide
 from packages.domain.entities import ExtractionOutput
 from packages.domain.enums import ActorType, Decision, DocumentType
@@ -300,6 +301,14 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             logger.error("no extraction result for case %s — aborting", case_id)
             return
 
+        # Business-key: compute once after extraction, save to case.
+        # Idempotent: if already set (resume path), keep existing value.
+        if not case.business_key:
+            bk = compute_business_key(fields)
+            if bk:
+                case.business_key = bk
+                await session.commit()
+
         # ── S3: VALIDATE ──────────────────────────────────────────────────────
         has_block = False
 
@@ -340,12 +349,29 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         recon_out: ReconciliationOutput | None = None
 
         if CaseStatus(case.status) == CaseStatus.VALIDATED:
+            # Business-key dedup check: look for a non-rejected,
+            # non-initial case in the same org with the same business key.
+            # States excluded: received/classified (brand new, may still fail);
+            # rejected (explicitly dismissed — a re-submission is valid).
+            business_key_seen = False
+            if case.business_key:
+                excluded_statuses = frozenset({"received", "classified", "rejected"})
+                dup = await session.scalar(
+                    select(Case).where(
+                        Case.organization_id == case.organization_id,
+                        Case.business_key == case.business_key,
+                        Case.id != case.id,
+                        Case.status.not_in(excluded_statuses),
+                    )
+                )
+                business_key_seen = dup is not None
+
             # Context injected at the I/O boundary. PO/payment data comes from
-            # external systems (Phase 3); business_key_seen from dedup.
+            # external systems (Phase 3); business_key_seen now set by
             recon_ctx = ReconciliationContext(
                 po_total=None,
                 payment_total=None,
-                business_key_seen=False,  # populated by
+                business_key_seen=business_key_seen,
                 supplier_blocklisted=False,
             )
             recon_out = reconcile(fields, recon_ctx)

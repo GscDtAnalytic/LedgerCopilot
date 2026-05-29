@@ -7,6 +7,7 @@ Requires authentication. The body content is sanitised before storing
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 
@@ -62,10 +63,15 @@ async def intake_email(
     sanitised_body = _sanitise(body.body_text)
     trace_id = str(uuid.uuid4())
 
+    # Deterministic hash of the email content so the same email doesn't
+    # create two documents.
+    email_content = f"{body.from_address}\0{body.subject}\0{body.body_text}"
+    file_hash = hashlib.sha256(email_content.encode()).hexdigest()
+
     doc = Document(
         organization_id=user.org_id,
         original_filename=f"email:{body.subject[:120]}",
-        file_hash=str(uuid.uuid4()),  # placeholder — no real file attached
+        file_hash=file_hash,
         content_type="message/rfc822",
         storage_path=f"email/{trace_id}",
         channel="email",
