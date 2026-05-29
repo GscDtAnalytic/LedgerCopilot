@@ -11,7 +11,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from apps.api.config import settings
+from apps.api.database import async_session_factory
 from apps.api.routers import cases, documents
+from apps.api.seed import ensure_default_org
 
 app = FastAPI(
     title="LedgerCopilot API",
@@ -21,6 +23,12 @@ app = FastAPI(
 
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(cases.router, prefix="/api/v1")
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    async with async_session_factory() as session:
+        await ensure_default_org(session)
 
 
 @app.get("/health", tags=["meta"])
