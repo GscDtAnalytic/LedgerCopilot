@@ -10,7 +10,9 @@ from apps.api.models.case import Case
 from apps.api.models.document import Document
 from apps.api.models.extraction import ExtractionResult
 from apps.api.models.human_review import HumanReview
+from apps.api.models.model_run import ModelRun
 from apps.api.models.organization import Organization
+from apps.api.models.prompt_version import PromptVersion
 from apps.api.models.user import User
 from apps.api.models.validation import ValidationResult
 
@@ -21,7 +23,9 @@ __all__ = [
     "Document",
     "ExtractionResult",
     "HumanReview",
+    "ModelRun",
     "Organization",
+    "PromptVersion",
     "TimestampMixin",
     "User",
     "ValidationResult",

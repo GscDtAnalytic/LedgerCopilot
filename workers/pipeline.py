@@ -26,6 +26,7 @@ from typing import Any, ClassVar
 from apps.api.config import settings
 from apps.api.database import async_session_factory
 from apps.api.models import AuditEvent, Case, Document, ExtractionResult, ValidationResult
+from apps.api.services.tracing import persist_trace
 from packages.agents.extraction import run_extraction
 from packages.domain.entities import DecisionBranches, ExtractionOutput
 from packages.domain.enums import ActorType, Decision, DocumentType
@@ -213,6 +214,7 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             overall_confidence=overall_conf,
         )
         session.add(extraction)
+        await persist_trace(session, ext_trace)  # best-effort; swallowed on error
         await _transition(
             session, case, CaseStatus.EXTRACTED, ActorType.AGENT,
             {
