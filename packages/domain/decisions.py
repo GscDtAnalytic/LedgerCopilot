@@ -17,6 +17,7 @@ def decide(
     risk_score: float,
     requires_human: bool,
     injection_suspected: bool = False,
+    recon_reject_reason: str | None = None,
 ) -> tuple[Decision, str, DecisionBranches, str]:
     """Tree-of-Thoughts decision (prompt doc §1.8).
 
@@ -25,9 +26,12 @@ def decide(
 
     Invariants:
     - injection_suspected always forces human_review.
+    - recon_reject_reason set → REJECT regardless of requires_human (deterministic
+      block from reconciliation: duplicate_invoice, supplier_blocklisted).
     - Auto-approve requires: no blocking failure, no policy escalation,
       confidence >= 0.85, and no injection signal.
-    - risk_score >= 1.0 signals a hard deterministic block → reject branch.
+    - risk_score >= 1.0 without a hard-block signals accumulated risk → reject branch
+      only when requires_human is False (soft path).
     """
     confidence = fields.overall_confidence()
 
@@ -39,13 +43,18 @@ def decide(
     review_score = 0.5  # safe default: escalation is always acceptable
     reject_score = 0.0
 
+    # Hard deterministic reject from reconciliation (duplicate, blocklist).
+    # Overrides requires_human — no point in a human reviewing a confirmed duplicate.
+    if recon_reject_reason:
+        reject_score = 1.0
+
     # auto_approve: all critical fields confident, no block, no policy flag.
-    if not has_blocking_failure and not requires_human and confidence >= 0.85:
+    elif not has_blocking_failure and not requires_human and confidence >= 0.85:
         auto_score = confidence
 
-    # reject: hard deterministic block (risk_score == 1.0 signals confirmed duplicate
-    # or other hard-block policy; does not override requires_human).
-    if risk_score >= 1.0 and not requires_human:
+    # Accumulated risk >= 1.0 without an explicit recon block → reject branch
+    # (soft path; only when policy does not already require human).
+    elif risk_score >= 1.0 and not requires_human:
         reject_score = 0.8
 
     review_score = max(review_score, 1.0 - auto_score - reject_score)
@@ -65,8 +74,15 @@ def decide(
         )
     elif reject_score > review_score:
         decision = Decision.REJECT
-        reason_code = "hard_block"
-        justification = "Hard rejection criteria met (deterministic block from policy engine)."
+        if recon_reject_reason:
+            reason_code = recon_reject_reason
+            justification = (
+                f"Deterministic rejection: {recon_reject_reason}. "
+                "No human review required for confirmed hard-block conditions."
+            )
+        else:
+            reason_code = "hard_block"
+            justification = "Hard rejection criteria met (deterministic block from policy engine)."
     else:
         decision = Decision.HUMAN_REVIEW
         reasons: list[str] = []

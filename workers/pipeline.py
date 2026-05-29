@@ -37,6 +37,7 @@ from apps.api.models import (
     DeadLetter,
     Document,
     ExtractionResult,
+    ReconciliationResult,
     ValidationResult,
 )
 from apps.api.services.prompts import get_active_system_text
@@ -47,6 +48,7 @@ from packages.domain.entities import ExtractionOutput
 from packages.domain.enums import ActorType, Decision, DocumentType
 from packages.domain.state_machine import CaseStatus, assert_transition
 from packages.policy.engine import run_policy
+from packages.reconciliation.engine import ReconciliationContext, ReconciliationOutput, reconcile
 from packages.validation.engine import run_validations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -334,24 +336,57 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 has_block = val_row.has_blocking_failure
 
         # ── S4: RECONCILE ─────────────────────────────────────────────────────
+        # Local state populated here and reloaded on the resume path.
+        recon_out: ReconciliationOutput | None = None
+
         if CaseStatus(case.status) == CaseStatus.VALIDATED:
-            recon_matched = (
-                fields.total_amount is not None
-                and fields.total_amount.value is not None
-                and not has_block
+            # Context injected at the I/O boundary. PO/payment data comes from
+            # external systems (Phase 3); business_key_seen from dedup.
+            recon_ctx = ReconciliationContext(
+                po_total=None,
+                payment_total=None,
+                business_key_seen=False,  # populated by
+                supplier_blocklisted=False,
             )
+            recon_out = reconcile(fields, recon_ctx)
+
+            recon_record = ReconciliationResult(
+                case_id=case.id,
+                matched=recon_out.matched,
+                deltas_json=[d.model_dump() for d in recon_out.deltas],
+                risk_delta=recon_out.risk_delta,
+                reject_reason=recon_out.reject_reason,
+            )
+            session.add(recon_record)
             await _transition(
                 session,
                 case,
                 CaseStatus.RECONCILED,
                 ActorType.SYSTEM,
                 {
-                    "matched": recon_matched,
-                    "deltas": [],
-                    "note": "phase2_simple_reconciliation",
+                    "matched": recon_out.matched,
+                    "deltas": [d.model_dump() for d in recon_out.deltas],
+                    "risk_delta": recon_out.risk_delta,
+                    "reject_reason": recon_out.reject_reason,
                 },
             )
             await session.commit()
+
+        # Resume path: load reconciliation result if S4 was already done.
+        if recon_out is None and CaseStatus(case.status) != CaseStatus.VALIDATED:
+            recon_row = await session.scalar(
+                select(ReconciliationResult)
+                .where(ReconciliationResult.case_id == case_id)
+                .order_by(ReconciliationResult.created_at.desc())
+                .limit(1)
+            )
+            if recon_row is not None:
+                recon_out = ReconciliationOutput(
+                    matched=recon_row.matched,
+                    deltas=[],
+                    risk_delta=recon_row.risk_delta,
+                    reject_reason=recon_row.reject_reason,
+                )
 
         # ── S5: POLICY ────────────────────────────────────────────────────────
         policy_decisions: list[Any] = []
@@ -365,6 +400,13 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 supplier_registered=False,
                 po_total=None,
             )
+            # Add reconciliation risk on top of policy risk.
+            if recon_out:
+                risk_score = min(1.0, risk_score + recon_out.risk_delta)
+                # Soft mismatch (value delta, not a hard reject) also escalates to review.
+                if not recon_out.matched and not recon_out.reject_reason:
+                    requires_human = True
+
             # Injection suspicion is an additional escalation signal.
             if injection_suspected:
                 requires_human = True
@@ -381,6 +423,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                     "requires_human": requires_human,
                     "injection_suspected": injection_suspected,
                     "policy_version_id": _POLICY_VERSION_ID,
+                    "recon_reject_reason": recon_out.reject_reason if recon_out else None,
                     "policies": [
                         {"id": d.policy_id, "verdict": d.verdict, "req_human": d.requires_human}
                         for d in policy_decisions
@@ -394,9 +437,15 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
 
         # ── S6: DECIDE ────────────────────────────────────────────────────────
         if CaseStatus(case.status) == CaseStatus.POLICY_EVALUATED:
+            recon_reject_reason = recon_out.reject_reason if recon_out else None
             # Use the shared domain function.
             decision, reason_code, branches, justification = decide(
-                fields, has_block, risk_score, requires_human, injection_suspected
+                fields,
+                has_block,
+                risk_score,
+                requires_human,
+                injection_suspected,
+                recon_reject_reason=recon_reject_reason,
             )
             case.decision = decision
             case.reason_code = reason_code
