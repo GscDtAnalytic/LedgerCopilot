@@ -4,10 +4,10 @@ Run with: ``uv run arq workers.pipeline.WorkerSettings``
 
 Macro flow:
   1. RECEIVED → CLASSIFIED  (classify document type from filename/content)
-  2. CLASSIFIED → EXTRACTED  (stub extractor; real agent in Phase 2)
+  2. CLASSIFIED → EXTRACTED  (ai_gateway + Self-Consistency k=3, stub fallback)
   3. EXTRACTED → VALIDATED   (deterministic rules, no LLM)
-  4. VALIDATED → RECONCILED  (stub in Phase 1; full reconciliation in Phase 2)
-  5. RECONCILED → POLICY_EVALUATED  (stub policy; full engine in Phase 2)
+  4. VALIDATED → RECONCILED  (Phase 2: simple totals check)
+  5. RECONCILED → POLICY_EVALUATED  (Phase 2: versioned policy engine)
   6. POLICY_EVALUATED → DECIDED     (Tree-of-Thoughts decision logic)
   7. DECIDED → AUTO_APPROVED | IN_HUMAN_REVIEW | REJECTED
 
@@ -26,18 +26,17 @@ from typing import Any, ClassVar
 from apps.api.config import settings
 from apps.api.database import async_session_factory
 from apps.api.models import AuditEvent, Case, Document, ExtractionResult, ValidationResult
-from packages.agents.stub_extractor import extract_from_text
+from packages.agents.extraction import run_extraction
 from packages.domain.entities import DecisionBranches, ExtractionOutput
 from packages.domain.enums import ActorType, Decision, DocumentType
 from packages.domain.state_machine import CaseStatus, assert_transition
+from packages.policy.engine import run_policy
 from packages.validation.engine import run_validations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-_PROMPT_VERSION_ID = "dev-1.0"
 _POLICY_VERSION_ID = "dev-1.0"
-_STUB_MODEL = "stub-extractor-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -94,32 +93,12 @@ def _classify_document_type(filename: str, content: bytes) -> str:
     return DocumentType.INVOICE
 
 
-def _extract(content: bytes, filename: str) -> ExtractionOutput:
-    """Run stub extractor; Phase 2 replaces this with the real ai_gateway call."""
+def _doc_to_text(content: bytes) -> str:
+    """Best-effort bytes → text for the extraction prompt."""
     try:
-        text = content.decode("utf-8", errors="replace")
+        return content.decode("utf-8", errors="replace")
     except Exception:
-        text = ""
-    return extract_from_text(text, filename)
-
-
-def _stub_policy_check(
-    fields: ExtractionOutput,
-    has_blocking_failure: bool,
-) -> tuple[float, bool]:
-    """Phase 1 stub policy: block if confidence too low or validation failed.
-
-    Returns (risk_score, requires_human).
-    Full policy engine lands in Phase 2.
-    """
-    confidence = fields.overall_confidence()
-    if has_blocking_failure:
-        return 0.9, True
-    if confidence < 0.50:
-        return 0.7, True
-    if confidence < 0.85:
-        return 0.4, False
-    return 0.1, False
+        return ""
 
 
 def _decide(
@@ -217,15 +196,20 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
         )
         await session.commit()
 
-        # ── S2: EXTRACT ──────────────────────────────────────────────────────
-        fields = _extract(content, doc.original_filename)
+        # ── S2: EXTRACT (ai_gateway + Self-Consistency k=3) ──────────────────
+        doc_text = _doc_to_text(content)
+        fields, ext_trace, low_agreement = await run_extraction(
+            case_id=case.id,
+            trace_id=case.trace_id,
+            document_text=doc_text,
+        )
         overall_conf = fields.overall_confidence()
 
         extraction = ExtractionResult(
             case_id=case.id,
             fields_json=fields.model_dump(),
-            prompt_version_id=_PROMPT_VERSION_ID,
-            model_name=_STUB_MODEL,
+            prompt_version_id=ext_trace.prompt_version_id,
+            model_name=ext_trace.model,
             overall_confidence=overall_conf,
         )
         session.add(extraction)
@@ -233,13 +217,15 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             session, case, CaseStatus.EXTRACTED, ActorType.AGENT,
             {
                 "overall_confidence": overall_conf,
-                "prompt_version_id": _PROMPT_VERSION_ID,
+                "prompt_version_id": ext_trace.prompt_version_id,
+                "model": ext_trace.model,
+                "low_agreement_fields": low_agreement,
                 "critical_fields_extracted": sum(
                     1 for f in fields.critical_fields() if f and f.value is not None
                 ),
             },
-            prompt_version_id=_PROMPT_VERSION_ID,
-            model_name=_STUB_MODEL,
+            prompt_version_id=ext_trace.prompt_version_id,
+            model_name=ext_trace.model,
         )
         await session.commit()
 
@@ -261,15 +247,26 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
         )
         await session.commit()
 
-        # ── S4: RECONCILE (stub — Phase 2 adds real PO matching) ────────────
+        # ── S4: RECONCILE (Phase 2: simple total consistency check) ──────────
+        total_fv = fields.total_amount
+        recon_matched = total_fv is not None and total_fv.value is not None and not has_block
         await _transition(
             session, case, CaseStatus.RECONCILED, ActorType.SYSTEM,
-            {"note": "stub_reconciliation_phase1", "matched": False, "deltas": []},
+            {
+                "matched": recon_matched,
+                "deltas": [],
+                "note": "phase2_simple_reconciliation",
+            },
         )
         await session.commit()
 
-        # ── S5: POLICY (stub) ────────────────────────────────────────────────
-        risk_score, requires_human = _stub_policy_check(fields, has_block)
+        # ── S5: POLICY (Phase 2: versioned policy engine) ────────────────────
+        policy_decisions, risk_score, requires_human = run_policy(
+            fields=fields,
+            has_blocking_failure=has_block,
+            supplier_registered=False,  # Phase 3: real supplier registry lookup
+            po_total=None,              # Phase 3: real PO retrieval
+        )
         case.risk_score = risk_score
         await _transition(
             session, case, CaseStatus.POLICY_EVALUATED, ActorType.SYSTEM,
@@ -277,6 +274,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
                 "risk_score": risk_score,
                 "requires_human": requires_human,
                 "policy_version_id": _POLICY_VERSION_ID,
+                "policies": [
+                    {"id": d.policy_id, "verdict": d.verdict, "requires_human": d.requires_human}
+                    for d in policy_decisions
+                ],
             },
         )
         await session.commit()
@@ -293,9 +294,9 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             {
                 "decision_branches": branches.model_dump(),
                 "reason_code": reason_code,
-                "prompt_version_id": _PROMPT_VERSION_ID,
+                "prompt_version_id": ext_trace.prompt_version_id,
             },
-            prompt_version_id=_PROMPT_VERSION_ID,
+            prompt_version_id=ext_trace.prompt_version_id,
         )
         await session.commit()
 

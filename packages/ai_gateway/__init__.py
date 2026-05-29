@@ -10,3 +10,9 @@ Every model call in the platform goes through here. The gateway:
 - always returns output that the caller validates with a Pydantic model before use
   — never raw JSON from the model.
 """
+
+from packages.ai_gateway.client import gateway_call
+from packages.ai_gateway.registry import get_prompt, list_versions
+from packages.ai_gateway.tracer import ModelTrace
+
+__all__ = ["ModelTrace", "gateway_call", "get_prompt", "list_versions"]

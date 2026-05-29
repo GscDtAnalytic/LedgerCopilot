@@ -1,0 +1,142 @@
+"""AI Gateway client — the only place in the codebase that calls the LLM.
+
+Every model call goes through `gateway_call()`:
+  1. Resolves the prompt from the registry.
+  2. Calls Anthropic (or falls back to the stub extractor if no API key).
+  3. Validates the raw JSON response with the caller-supplied Pydantic model.
+  4. Records a trace (tokens, latency, cost).
+
+Never returns raw JSON from the model — callers always get a validated Pydantic
+instance, or an exception with a clear message.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from typing import Any, TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+from packages.ai_gateway.registry import get_prompt
+from packages.ai_gateway.tracer import ModelTrace
+
+T = TypeVar("T", bound=BaseModel)
+
+_DEFAULT_MODEL = os.environ.get("AI_DEFAULT_MODEL", "claude-sonnet-4-6")
+_FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "claude-haiku-4-5-20251001")
+
+# Lazily initialised — avoids import error when the SDK is not installed.
+_anthropic_client: Any = None
+
+
+def _get_client() -> Any:
+    global _anthropic_client
+    if _anthropic_client is not None:
+        return _anthropic_client
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    except Exception:
+        return None
+    return _anthropic_client
+
+
+async def gateway_call(
+    *,
+    case_id: str,
+    trace_id: str,
+    prompt_alias: str,
+    user_message: str,
+    response_model: type[T],
+    stage: str,
+    model: str | None = None,
+    max_tokens: int = 1024,
+) -> tuple[T, ModelTrace]:
+    """Call the LLM and return a validated Pydantic instance + trace.
+
+    Falls back to the stub extractor when ANTHROPIC_API_KEY is not configured,
+    so the pipeline can run end-to-end in dev without credentials.
+    """
+    prompt_version = get_prompt(prompt_alias)
+    effective_model = model or _DEFAULT_MODEL
+
+    trace = ModelTrace(
+        case_id=case_id,
+        trace_id=trace_id,
+        prompt_version_id=prompt_version.id,
+        model=effective_model,
+        stage=stage,
+    )
+
+    client = _get_client()
+    if client is None:
+        # Stub mode: run the regex-based extractor and coerce to the response schema.
+        return await _stub_response(user_message, response_model, trace)
+
+    start = time.monotonic()
+    try:
+
+        message = client.messages.create(
+            model=effective_model,
+            max_tokens=max_tokens,
+            system=prompt_version.system,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = message.content[0].text
+        in_tok = message.usage.input_tokens
+        out_tok = message.usage.output_tokens
+    except Exception as exc:
+        # Model fallback: try the cheaper model once.
+        if effective_model != _FALLBACK_MODEL:
+            return await gateway_call(
+                case_id=case_id,
+                trace_id=trace_id,
+                prompt_alias=prompt_alias,
+                user_message=user_message,
+                response_model=response_model,
+                stage=stage,
+                model=_FALLBACK_MODEL,
+                max_tokens=max_tokens,
+            )
+        raise RuntimeError(f"gateway: all models failed — {exc}") from exc
+
+    trace.finish(start, in_tok, out_tok)
+
+    # Strip markdown fences if the model wrapped the JSON.
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rstrip("`").strip()
+
+    try:
+        data = json.loads(raw)
+        return response_model.model_validate(data), trace
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise ValueError(
+            f"gateway: model output failed Pydantic validation ({type(exc).__name__}): {exc}"
+        ) from exc
+
+
+async def _stub_response(
+    user_message: str,
+    response_model: type[T],
+    trace: ModelTrace,
+) -> tuple[T, ModelTrace]:
+    """Stub: run the regex extractor and coerce its output to response_model."""
+    from packages.agents.stub_extractor import extract_from_text
+
+    start = time.monotonic()
+    fields = extract_from_text(user_message)
+    trace.model = "stub"
+    trace.finish(start, 0, 0)
+
+    # Coerce ExtractionOutput → response_model via its dict representation.
+    validated: T = response_model.model_validate(fields.model_dump())
+    return validated, trace

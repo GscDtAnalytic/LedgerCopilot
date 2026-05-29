@@ -21,6 +21,7 @@ dependencies = [
     "structlog>=24.4",
     "httpx>=0.28",
     "python-multipart>=0.0.12",
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]
@@ -67,6 +68,9 @@ select = [
     "SIM",           # simplify
     "T20",           # flake8-print — no print(), use structured logging
     "RUF",
+]
+ignore = [
+    "UP047",   # TypeVar-based generics are still idiomatic and readable
 ]
 
 [tool.ruff.lint.per-file-ignores]

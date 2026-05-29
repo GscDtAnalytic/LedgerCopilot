@@ -9,6 +9,7 @@ from apps.api.models.base import Base, TimestampMixin
 from apps.api.models.case import Case
 from apps.api.models.document import Document
 from apps.api.models.extraction import ExtractionResult
+from apps.api.models.human_review import HumanReview
 from apps.api.models.organization import Organization
 from apps.api.models.user import User
 from apps.api.models.validation import ValidationResult
@@ -19,6 +20,7 @@ __all__ = [
     "Case",
     "Document",
     "ExtractionResult",
+    "HumanReview",
     "Organization",
     "TimestampMixin",
     "User",
