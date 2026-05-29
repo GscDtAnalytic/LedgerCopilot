@@ -1,0 +1,16 @@
+{
+  "name": "ledgercopilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI operations platform for financial document workflows (monorepo root).",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck"
+  }
+}

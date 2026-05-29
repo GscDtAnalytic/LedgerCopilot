@@ -1,0 +1,102 @@
+[project]
+name = "ledgercopilot"
+version = "0.1.0"
+description = "AI operations platform for financial document workflows — classify, extract, validate, reconcile, decide, with full audit trail and selective human review (HITL)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+
+# Runtime dependencies. Pinned by lower bound; uv.lock holds the resolved set.
+# Kept intentionally lean at scaffold time — packages add their own as features land.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "arq>=0.26",
+    "redis>=5.2",
+    "structlog>=24.4",
+    "httpx>=0.28",
+]
+
+[dependency-groups]
+# Dev/test tooling. Installed by `uv sync` (default groups) for local + CI.
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# The repo is an application, not a library: the documented run commands import
+# top-level dirs directly (`apps.api.main:app`, `workers.pipeline`, `eval.run`).
+# We expose those dirs as packages so the editable install puts the root on path.
+[tool.hatch.build.targets.wheel]
+packages = ["apps", "packages", "workers", "eval"]
+
+[tool.uv]
+package = true
+
+# ----------------------------------------------------------------------------
+# Ruff — lint + format
+# ----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["apps", "packages", "workers", "eval"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "N",             # pep8-naming
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehensions
+    "SIM",           # simplify
+    "T20",           # flake8-print — no print(), use structured logging
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["T20"]
+
+# ----------------------------------------------------------------------------
+# mypy — strict in the pure packages
+# ----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# domain / validation / policy / reconciliation are pure and must be strict.
+module = [
+    "packages.domain.*",
+    "packages.validation.*",
+    "packages.policy.*",
+    "packages.reconciliation.*",
+]
+disallow_untyped_defs = true
+disallow_any_generics = true
+strict_equality = true
+no_implicit_optional = true
+
+# ----------------------------------------------------------------------------
+# pytest
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["packages", "apps", "workers", "eval"]
+asyncio_mode = "auto"
+addopts = "-q"
