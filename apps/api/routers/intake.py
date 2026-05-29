@@ -65,15 +65,11 @@ async def intake_email(
     doc = Document(
         organization_id=user.org_id,
         original_filename=f"email:{body.subject[:120]}",
-        file_hash=str(uuid.uuid4()),  # placeholder — no real file
+        file_hash=str(uuid.uuid4()),  # placeholder — no real file attached
+        content_type="message/rfc822",
         storage_path=f"email/{trace_id}",
         channel="email",
-        metadata_json={
-            "from_address": body.from_address,
-            "subject": body.subject,
-            "body_preview": sanitised_body[:200],
-            "attachment_count": len(body.attachments),
-        },
+        file_size_bytes=len(sanitised_body.encode()),
     )
     session.add(doc)
     await session.flush()
