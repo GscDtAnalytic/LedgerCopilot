@@ -15,13 +15,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import CurrentUser, get_current_user, require_roles
 from apps.api.database import get_session
-from apps.api.models import AuditEvent, Case, Document, ExtractionResult, ValidationResult
+from apps.api.models import (
+    AuditEvent,
+    Case,
+    DeadLetter,
+    Document,
+    ExtractionResult,
+    ValidationResult,
+)
 from apps.api.schemas.cases import (
     AuditEventOut,
     CaseDetail,
     CaseListItem,
     CasesListResponse,
     ExtractionFields,
+    ReprocessResponse,
     ValidationRule,
 )
 
@@ -38,9 +46,12 @@ async def list_cases(
     """Paginated case inbox for the authenticated user's org (newest first)."""
     offset = (page - 1) * page_size
 
-    total = await session.scalar(
-        select(func.count()).select_from(Case).where(Case.organization_id == user.org_id)
-    ) or 0
+    total = (
+        await session.scalar(
+            select(func.count()).select_from(Case).where(Case.organization_id == user.org_id)
+        )
+        or 0
+    )
 
     rows = await session.execute(
         select(Case, Document)
@@ -232,3 +243,51 @@ async def export_audit_package(
             "Content-Disposition": f'attachment; filename="audit_{case_id[:8]}.json"',
         },
     )
+
+
+@router.post("/{case_id}/reprocess", response_model=ReprocessResponse)
+async def reprocess_case(
+    case_id: str,
+    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(require_roles("admin")),
+) -> ReprocessResponse:
+    """Re-enqueue a stuck or dead-lettered case for pipeline processing (admin only).
+
+    Idempotent: the pipeline's resume logic skips stages already completed.
+    Marks any open dead_letter entries as resolved and writes an audit_event.
+    """
+    case = await session.get(Case, case_id)
+    if case is None or case.organization_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Case not found.")
+
+    # Resolve open dead_letter entries for this case.
+    dl_rows = await session.execute(
+        select(DeadLetter).where(DeadLetter.case_id == case_id, DeadLetter.resolved.is_(False))
+    )
+    for (dl,) in dl_rows:
+        dl.resolved = True
+
+    # Audit: record the human reprocess decision.
+    audit = AuditEvent(
+        case_id=case_id,
+        organization_id=case.organization_id,
+        actor_type="human",
+        actor_id=user.user_id,
+        from_status=case.status,
+        to_status=case.status,
+        trace_id=case.trace_id,
+        payload={"event": "admin_reprocess", "requester": user.email},
+    )
+    session.add(audit)
+    await session.commit()
+
+    # Re-enqueue via shared pool.
+    try:
+        from apps.api.redis_pool import get_redis_pool
+
+        await get_redis_pool().enqueue_job("process_document", case_id)
+        enqueued = True
+    except Exception:
+        enqueued = False
+
+    return ReprocessResponse(case_id=case_id, enqueued=enqueued, status=case.status)

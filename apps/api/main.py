@@ -8,10 +8,13 @@ prompts/policies and reviews land phase by phase.
 
 from __future__ import annotations
 
+import contextlib
+
 from fastapi import FastAPI
 
 from apps.api.config import settings
 from apps.api.database import async_session_factory
+from apps.api.redis_pool import close_redis_pool, init_redis_pool
 from apps.api.routers import auth, cases, dashboard, documents, intake, monitoring, prompts, reviews
 from apps.api.seed import ensure_default_org
 
@@ -35,6 +38,13 @@ app.include_router(intake.router, prefix="/api/v1")
 async def on_startup() -> None:
     async with async_session_factory() as session:
         await ensure_default_org(session)
+    with contextlib.suppress(Exception):
+        await init_redis_pool()
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    await close_redis_pool()
 
 
 @app.get("/health", tags=["meta"])

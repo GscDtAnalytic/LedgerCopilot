@@ -103,3 +103,9 @@ class ReviewResponse(BaseModel):
     case_id: str
     new_status: str
     action: str
+
+
+class ReprocessResponse(BaseModel):
+    case_id: str
+    enqueued: bool
+    status: str

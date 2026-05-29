@@ -24,13 +24,21 @@ AuditEvent in the SAME transaction as the Case.status update.
 from __future__ import annotations
 
 import logging
+import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
 from apps.api.config import settings
 from apps.api.database import async_session_factory
-from apps.api.models import AuditEvent, Case, Document, ExtractionResult, ValidationResult
+from apps.api.models import (
+    AuditEvent,
+    Case,
+    DeadLetter,
+    Document,
+    ExtractionResult,
+    ValidationResult,
+)
 from apps.api.services.prompts import get_active_system_text
 from apps.api.services.tracing import persist_trace
 from packages.agents.extraction import run_extraction
@@ -46,6 +54,58 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 _POLICY_VERSION_ID = "dev-1.0"
+_MAX_TRIES = 3  # kept in sync with WorkerSettings.max_tries below
+
+
+async def _write_dead_letter(case_id: str, error: Exception, retry_count: int) -> None:
+    """Persist DeadLetter + audit_event when all retries are exhausted.
+
+    Runs in its own session so a failure here doesn't mask the original error.
+    The audit_event uses actor_type=system with the error details in the payload.
+    """
+    try:
+        async with async_session_factory() as session:
+            case = await session.get(Case, case_id)
+            if case is None:
+                return
+
+            tb = traceback.format_exc()
+            dl = DeadLetter(
+                case_id=case_id,
+                organization_id=case.organization_id,
+                error_type=type(error).__name__,
+                error_message=str(error)[:2000],
+                retry_count=retry_count,
+            )
+            session.add(dl)
+
+            audit = AuditEvent(
+                case_id=case_id,
+                organization_id=case.organization_id,
+                actor_type=ActorType.SYSTEM,
+                actor_id="pipeline",
+                from_status=case.status,
+                to_status=case.status,  # status does not change — case is stuck
+                trace_id=case.trace_id,
+                payload={
+                    "event": "pipeline_dead_letter",
+                    "error_type": type(error).__name__,
+                    "error_message": str(error)[:500],
+                    "traceback": tb[:2000],
+                    "retry_count": retry_count,
+                },
+            )
+            session.add(audit)
+            await session.commit()
+
+        logger.error(
+            "pipeline.dead_letter case_id=%s retries=%d error=%s",
+            case_id,
+            retry_count,
+            error,
+        )
+    except Exception:
+        logger.exception("pipeline.dead_letter write failed for case_id=%s", case_id)
 
 
 # ─── Atomic transition helper ─────────────────────────────────────────────────
@@ -117,7 +177,32 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
     Resumable: each stage checks case.status before running. A case already past
     a stage (e.g. VALIDATED after a human edit) will skip earlier stages and load
     intermediate data from the DB instead.
+
+    DLQ: on the final retry attempt (job_try == _MAX_TRIES) an unhandled
+    exception is caught here, written to dead_letters + audit_event, and NOT re-raised
+    so arq marks the job as complete. Earlier failures are re-raised so arq retries.
     """
+    job_try: int = ctx.get("job_try", 1)
+    logger.info("pipeline.start case_id=%s try=%d/%d", case_id, job_try, _MAX_TRIES)
+    try:
+        await _run_pipeline(ctx, case_id)
+    except Exception as exc:
+        if job_try >= _MAX_TRIES:
+            await _write_dead_letter(case_id, exc, retry_count=job_try)
+            # Do not re-raise: arq marks job as done; case sits in dead_letters.
+        else:
+            logger.warning(
+                "pipeline.retry case_id=%s try=%d/%d error=%s",
+                case_id,
+                job_try,
+                _MAX_TRIES,
+                exc,
+            )
+            raise
+
+
+async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
+    """Inner pipeline logic, extracted so process_document can wrap it cleanly."""
     logger.info("pipeline.start case_id=%s", case_id)
 
     async with async_session_factory() as session:
@@ -143,7 +228,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             doc_type = _classify_document_type(doc.original_filename, content)
             case.document_type = doc_type
             await _transition(
-                session, case, CaseStatus.CLASSIFIED, ActorType.SYSTEM,
+                session,
+                case,
+                CaseStatus.CLASSIFIED,
+                ActorType.SYSTEM,
                 {"document_type": doc_type},
             )
             await session.commit()
@@ -174,7 +262,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             session.add(extraction)
             await persist_trace(session, ext_trace)
             await _transition(
-                session, case, CaseStatus.EXTRACTED, ActorType.AGENT,
+                session,
+                case,
+                CaseStatus.EXTRACTED,
+                ActorType.AGENT,
                 {
                     "overall_confidence": overall_conf,
                     "prompt_version_id": ext_trace.prompt_version_id,
@@ -219,7 +310,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             )
             session.add(validation)
             await _transition(
-                session, case, CaseStatus.VALIDATED, ActorType.SYSTEM,
+                session,
+                case,
+                CaseStatus.VALIDATED,
+                ActorType.SYSTEM,
                 {
                     "rules_run": len(rules),
                     "passed": sum(1 for r in rules if r.passed),
@@ -247,7 +341,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
                 and not has_block
             )
             await _transition(
-                session, case, CaseStatus.RECONCILED, ActorType.SYSTEM,
+                session,
+                case,
+                CaseStatus.RECONCILED,
+                ActorType.SYSTEM,
                 {
                     "matched": recon_matched,
                     "deltas": [],
@@ -275,7 +372,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
 
             case.risk_score = risk_score
             await _transition(
-                session, case, CaseStatus.POLICY_EVALUATED, ActorType.SYSTEM,
+                session,
+                case,
+                CaseStatus.POLICY_EVALUATED,
+                ActorType.SYSTEM,
                 {
                     "risk_score": risk_score,
                     "requires_human": requires_human,
@@ -303,7 +403,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             case.justification = justification
             prompt_vid = ext_trace.prompt_version_id if ext_trace else None
             await _transition(
-                session, case, CaseStatus.DECIDED, ActorType.AGENT,
+                session,
+                case,
+                CaseStatus.DECIDED,
+                ActorType.AGENT,
                 {
                     "decision_branches": branches.model_dump(),
                     "reason_code": reason_code,
@@ -322,7 +425,10 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
             }
             terminal_status = terminal_map[Decision(case.decision or "human_review")]
             await _transition(
-                session, case, terminal_status, ActorType.AGENT,
+                session,
+                case,
+                terminal_status,
+                ActorType.AGENT,
                 {"justification": case.justification},
             )
             await session.commit()
@@ -331,7 +437,13 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
 
 
 class WorkerSettings:
-    """arq worker configuration."""
+    """arq worker configuration.
+
+    max_tries=3 means arq calls process_document up to 3 times on failure.
+    On the 3rd failure process_document catches the exception and writes to dead_letters
+    instead of re-raising, so arq marks the job as complete.
+    """
 
     functions: ClassVar[list[Callable[..., Any]]] = [process_document]
     redis_settings = settings.redis_url
+    max_tries = _MAX_TRIES

@@ -106,18 +106,13 @@ async def upload_document(
     session.add(audit)
     await session.commit()
 
-    # Enqueue pipeline job (fire and forget; worker picks it up via Redis).
+    # Enqueue pipeline job via the shared pool.
     try:
-        from arq import create_pool
-        from arq.connections import RedisSettings
+        from apps.api.redis_pool import get_redis_pool
 
-        from apps.api.config import settings
-
-        pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-        await pool.enqueue_job("process_document", case.id)
-        await pool.aclose()
+        await get_redis_pool().enqueue_job("process_document", case.id)
     except Exception:
-        # If Redis is down we still return the case; the job can be re-enqueued.
+        # If Redis is down we still return the case; admin can re-enqueue via reprocess endpoint.
         pass
 
     return DocumentUploadResponse(
