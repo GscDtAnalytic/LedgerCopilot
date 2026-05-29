@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { api, type FieldValue } from "@/lib/api";
+import { AuditExportButton } from "@/components/AuditExportButton";
 import { AuditTimeline } from "@/components/AuditTimeline";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { ReviewActions } from "@/components/ReviewActions";
@@ -194,6 +195,17 @@ export default async function CaseDetailPage({ params }: Props) {
               <ReviewActions caseId={caseData.id} apiBase="" />
             </section>
           )}
+
+          {/* Audit export — Phase 4, role-gated in the component */}
+          <section
+            aria-labelledby="export-heading"
+            className="rounded-lg border border-border bg-surface p-4"
+          >
+            <h2 id="export-heading" className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Audit package
+            </h2>
+            <AuditExportButton caseId={caseData.id} />
+          </section>
 
           {/* Audit trail */}
           <section aria-labelledby="audit-heading">

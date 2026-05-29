@@ -17,5 +17,7 @@ class Settings(BaseSettings):
     active_prompt_alias: str = "dev"
     active_policy_alias: str = "dev"
 
+    secret_key: str = "dev-secret-change-in-production-32chars"
+
 
 settings = Settings()

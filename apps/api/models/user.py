@@ -16,5 +16,5 @@ class User(Base, TimestampMixin):
         String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
-    # analyst | approver | admin (full RBAC in Phase 4)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="analyst")
+    password_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import "./globals.css";
+import { TopBar } from "@/components/TopBar";
 
 export const metadata: Metadata = {
   title: "LedgerCopilot",
@@ -24,21 +25,7 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <header className="border-b border-border bg-surface">
-          <nav
-            className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-3"
-            aria-label="Main navigation"
-          >
-            <a href="/inbox" className="text-sm font-semibold tracking-tight">
-              LedgerCopilot
-            </a>
-            <div className="flex gap-4 text-sm text-muted">
-              <a href="/inbox" className="transition-colors hover:text-foreground">Inbox</a>
-              <a href="/monitoring" className="transition-colors hover:text-foreground">Monitoring</a>
-              <a href="/prompts" className="transition-colors hover:text-foreground">Prompts</a>
-            </div>
-          </nav>
-        </header>
+        <TopBar />
         {children}
       </body>
     </html>

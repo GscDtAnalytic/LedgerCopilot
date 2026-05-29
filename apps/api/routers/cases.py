@@ -1,8 +1,11 @@
-"""GET /api/v1/cases — inbox and case detail endpoints."""
+"""GET /api/v1/cases — inbox, case detail, audit trail, and audit-export (Phase 4)."""
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,3 +140,83 @@ async def get_audit_trail(
         )
         for (ev,) in rows
     ]
+
+
+@router.get("/{case_id}/audit-export")
+async def export_audit_package(
+    case_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Download the full audit package for a case as a JSON file."""
+    case = await session.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found.")
+
+    doc = await session.get(Document, case.document_id)
+
+    extraction = await session.scalar(
+        select(ExtractionResult)
+        .where(ExtractionResult.case_id == case_id)
+        .order_by(ExtractionResult.created_at.desc())
+        .limit(1)
+    )
+    validation = await session.scalar(
+        select(ValidationResult)
+        .where(ValidationResult.case_id == case_id)
+        .order_by(ValidationResult.created_at.desc())
+        .limit(1)
+    )
+    audit_rows = await session.execute(
+        select(AuditEvent)
+        .where(AuditEvent.case_id == case_id)
+        .order_by(AuditEvent.occurred_at.asc())
+    )
+
+    package = {
+        "export_version": "1.0",
+        "case": {
+            "id": case.id,
+            "status": case.status,
+            "decision": case.decision,
+            "reason_code": case.reason_code,
+            "risk_score": case.risk_score,
+            "justification": case.justification,
+            "trace_id": case.trace_id,
+            "pipeline_version": case.pipeline_version,
+            "created_at": case.created_at.isoformat(),
+            "updated_at": case.updated_at.isoformat(),
+        },
+        "document": {
+            "id": doc.id if doc else None,
+            "original_filename": doc.original_filename if doc else None,
+            "channel": doc.channel if doc else None,
+            "file_hash": doc.file_hash if doc else None,
+        },
+        "extraction": extraction.fields_json if extraction else None,
+        "validation": {
+            "rules": validation.rules_json if validation else [],
+            "has_blocking_failure": validation.has_blocking_failure if validation else False,
+        },
+        "audit_trail": [
+            {
+                "id": ev.id,
+                "actor_type": ev.actor_type,
+                "actor_id": ev.actor_id,
+                "from_status": ev.from_status,
+                "to_status": ev.to_status,
+                "model_name": ev.model_name,
+                "trace_id": ev.trace_id,
+                "payload": ev.payload,
+                "occurred_at": ev.occurred_at.isoformat(),
+            }
+            for (ev,) in audit_rows
+        ],
+    }
+
+    return Response(
+        content=json.dumps(package, indent=2, default=str),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="audit_{case_id[:8]}.json"',
+        },
+    )
