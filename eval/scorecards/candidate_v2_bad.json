@@ -1,0 +1,29 @@
+{
+  "prompt_version_id": "extraction-v2-experimental",
+  "total_fixtures": 8,
+  "slices": {
+    "adversarial_formatting": 1,
+    "clean_invoice": 1,
+    "duplicate_invoice": 1,
+    "handwritten_receipt": 1,
+    "language_variation": 1,
+    "low_quality_scan": 1,
+    "supplier_unknown": 1,
+    "value_mismatch": 1
+  },
+  "field_accuracy": {
+    "supplier_name": 0.60,
+    "tax_id_cnpj": 0.80,
+    "total_amount": 0.75,
+    "document_number": 0.40
+  },
+  "exact_field_accuracy": 0.25,
+  "missing_critical_fields_rate": 0.125,
+  "false_auto_approve_rate": 0.025,
+  "supplier_name_accuracy": 0.625,
+  "decision_accuracy": 0.625,
+  "avg_cost_per_doc": 0.0,
+  "p95_latency_ms": 6.1,
+  "baseline_false_auto_approve_rate": 0.0,
+  "_note": "Experimental version v2 — worse on supplier_name (aggressively normalises names) and false_auto_approve_rate increased due to removed confidence check on date fields."
+}

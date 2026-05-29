@@ -1,0 +1,28 @@
+{
+  "prompt_version_id": "extraction-v1",
+  "total_fixtures": 8,
+  "slices": {
+    "adversarial_formatting": 1,
+    "clean_invoice": 1,
+    "duplicate_invoice": 1,
+    "handwritten_receipt": 1,
+    "language_variation": 1,
+    "low_quality_scan": 1,
+    "supplier_unknown": 1,
+    "value_mismatch": 1
+  },
+  "field_accuracy": {
+    "supplier_name": 1.0,
+    "tax_id_cnpj": 1.0,
+    "total_amount": 0.875,
+    "document_number": 0.25
+  },
+  "exact_field_accuracy": 0.125,
+  "missing_critical_fields_rate": 0.0,
+  "false_auto_approve_rate": 0.0,
+  "supplier_name_accuracy": 1.0,
+  "decision_accuracy": 0.75,
+  "avg_cost_per_doc": 0.0,
+  "p95_latency_ms": 4.7,
+  "baseline_false_auto_approve_rate": 0.0
+}

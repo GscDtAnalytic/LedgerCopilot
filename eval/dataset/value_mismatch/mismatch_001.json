@@ -1,0 +1,16 @@
+{
+  "id": "val_mis_001",
+  "slice": "value_mismatch",
+  "description": "Invoice total is 15% higher than the reference PO total — delta > 10% threshold.",
+  "document_text": "NOTA FISCAL\nEmitente: Parceiro Comercial Ltda\nCNPJ: 22.333.444/0001-55\nNumero: NF-2024-00350\nPedido de Compra: PO-2024-0192\nData de Emissao: 10/05/2024\nData de Vencimento: 10/06/2024\nDescricao: Fornecimento de materiais de escritorio\nTotal: R$ 11.500,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Parceiro Comercial Ltda",
+    "tax_id_cnpj": "22.333.444/0001-55",
+    "total_amount": 11500.0,
+    "currency": "BRL",
+    "document_number": "NF-2024-00350",
+    "po_total": 10000.0,
+    "expected_decision": "human_review",
+    "expected_reason": "value_mismatch"
+  }
+}

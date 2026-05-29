@@ -1,0 +1,14 @@
+{
+  "id": "lang_001",
+  "slice": "language_variation",
+  "description": "Invoice with mixed EN/PT-BR labels and non-standard date format.",
+  "document_text": "TAX INVOICE / NOTA FISCAL\nSupplier / Fornecedor: Global Tech Brasil Ltda\nCNPJ / Tax ID: 77.888.999/0001-33\nInvoice Number / Numero: INV-2024-0088\nIssue Date / Emissao: April 18, 2024\nDue Date / Vencimento: May 18, 2024\nDescription: Cloud infrastructure services - Q2 2024\nSubtotal: USD 6.200,00\nCurrency: USD\nTotal: USD 6.200,00",
+  "expected": {
+    "supplier_name": "Global Tech Brasil Ltda",
+    "tax_id_cnpj": "77.888.999/0001-33",
+    "total_amount": 6200.0,
+    "currency": "USD",
+    "document_number": "INV-2024-0088",
+    "expected_decision": "human_review"
+  }
+}

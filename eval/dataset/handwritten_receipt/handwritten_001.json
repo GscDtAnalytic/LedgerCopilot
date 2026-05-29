@@ -1,0 +1,15 @@
+{
+  "id": "hw_001",
+  "slice": "handwritten_receipt",
+  "description": "Partially legible handwritten receipt. Some fields readable, others not.",
+  "document_text": "RECIBO\nFornecedor: Jose Silva ME\nCNPJ nao identificado\nValor: R$ 450,00\nPago em: 14/04/2024\nServico: Manutencao geral\nAssinatura: [ilegivel]",
+  "expected": {
+    "supplier_name": "Jose Silva ME",
+    "tax_id_cnpj": null,
+    "total_amount": 450.0,
+    "currency": "BRL",
+    "document_number": null,
+    "expected_decision": "human_review",
+    "expected_reason": "cnpj_missing"
+  }
+}

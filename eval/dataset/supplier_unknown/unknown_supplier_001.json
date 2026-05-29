@@ -1,0 +1,15 @@
+{
+  "id": "sup_unk_001",
+  "slice": "supplier_unknown",
+  "description": "Supplier CNPJ is not in the registry. Policy requires human review.",
+  "document_text": "NOTA FISCAL\nEmitente: NovaEmpresa Tecnologia Eireli\nCNPJ: 55.444.333/0001-22\nNumero: NF-2024-00201\nData de Emissao: 05/05/2024\nData de Vencimento: 05/06/2024\nDescricao: Licenca de software anual\nTotal: R$ 14.800,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "NovaEmpresa Tecnologia Eireli",
+    "tax_id_cnpj": "55.444.333/0001-22",
+    "total_amount": 14800.0,
+    "currency": "BRL",
+    "document_number": "NF-2024-00201",
+    "expected_decision": "human_review",
+    "supplier_registered": false
+  }
+}

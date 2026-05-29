@@ -1,0 +1,14 @@
+{
+  "id": "dup_001",
+  "slice": "duplicate_invoice",
+  "description": "Same document submitted a second time — should be caught by dedup.",
+  "document_text": "NOTA FISCAL ELETRONICA\nEmitente: Acme Fornecedora Ltda\nCNPJ: 12.345.678/0001-90\nNumero: NF-2024-00042\nData de Emissao: 15/03/2024\nData de Vencimento: 15/04/2024\nTotal: R$ 9.500,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "12.345.678/0001-90",
+    "total_amount": 9500.0,
+    "currency": "BRL",
+    "document_number": "NF-2024-00042",
+    "expected_decision": "reject"
+  }
+}

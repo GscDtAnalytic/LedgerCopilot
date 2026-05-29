@@ -1,0 +1,15 @@
+{
+  "id": "low_q_001",
+  "slice": "low_quality_scan",
+  "description": "Garbled OCR from a poor-quality scan. Critical fields partially corrupted.",
+  "document_text": "N0TA F|SCAL\nEm|tente: Empresa X0Z Ltda\nCNPJ: 1??.34?.??8/0001-?0\nN0mero: NF-20?4-000??\nD@ta: 02/0?/2024\nTot@I: R$ 8.?50,?0\nMoed@: 8RL\n-- OCR QUALITY LOW --",
+  "expected": {
+    "supplier_name": null,
+    "tax_id_cnpj": null,
+    "total_amount": null,
+    "currency": null,
+    "document_number": null,
+    "expected_decision": "human_review",
+    "expected_confidence_max": 0.5
+  }
+}
