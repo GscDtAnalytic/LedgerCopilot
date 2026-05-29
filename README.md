@@ -85,7 +85,40 @@ Built in phases:
 1. ✅ **Core MVP** — upload, classification, extraction, basic validations, case detail, review queue, audit events.
 2. ✅ **Workflow intelligence** — policy engine, reconciliation, per-field confidence, approve/reject/edit, agent explanations, inbox with filters/SLA.
 3. ✅ **LLMOps layer** — detailed tracing, prompt registry, benchmark dataset, version compare, scorecards, regression gating.
-4. **Enterprise polish** — RBAC, per-org inbox, email/API integrations, executive dashboards, audit package export, long-running workflows (Temporal).
+4. ✅ **Enterprise polish** — JWT auth, RBAC (analyst/approver/admin), executive dashboard, audit package export, email intake webhook.
+
+## Phase 4 demo — JWT auth and RBAC ✅
+
+Three demo users are seeded at API startup (password: `demo123`):
+
+| Email | Role | Permissions |
+|---|---|---|
+| `analyst@demo.com` | analyst | Read cases, submit reviews |
+| `approver@demo.com` | approver | All analyst + approve/reject |
+| `admin@demo.com` | admin | Full access + executive dashboard, audit export |
+
+```bash
+# Login and get a JWT
+curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@demo.com","password":"demo123"}'
+
+# Executive dashboard (org-scoped when JWT present)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/dashboard
+
+# Email intake — creates a document+case from an incoming email
+curl -s -X POST http://localhost:8000/api/v1/intake/email \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"from_address":"supplier@acme.com","subject":"Invoice #2024-001","body_text":"..."}'
+
+# Full audit package for a case (JSON download)
+curl -OJ http://localhost:8000/api/v1/cases/{case_id}/audit-export
+```
+
+The frontend at `:3000` shows the role badge in the top bar, a `/login` page with
+demo quick-fill buttons, and an `/dashboard` executive view. The "Export audit package"
+button on case detail is gated to approver and admin roles.
 
 ## Blocked promotion demo (Phase 3 ✅)
 
@@ -144,4 +177,4 @@ language (multimodal, accessible, contextual). Inclusive design is the foundatio
 floor), backed by a living design system, purposeful microinteractions, a conversational/command
 layer, and XR as a documented long-term north star (web-first today). See `` §13.
 
-> Status: **Phases 1–3 complete**. Phase 4 (Enterprise polish) is next.
+> Status: **Phases 1–4 complete.**
