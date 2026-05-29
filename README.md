@@ -82,10 +82,60 @@ or individually — see the [`Makefile`](./Makefile) and `` §5.
 
 Built in phases:
 
-1. **Core MVP** — upload, classification, extraction, basic validations, case detail, review queue, audit events.
-2. **Workflow intelligence** — policy engine, reconciliation, per-field confidence, approve/reject/edit, agent explanations, inbox with filters/SLA.
-3. **LLMOps layer** — detailed tracing, prompt registry, benchmark dataset, version compare, scorecards, regression gating.
+1. ✅ **Core MVP** — upload, classification, extraction, basic validations, case detail, review queue, audit events.
+2. ✅ **Workflow intelligence** — policy engine, reconciliation, per-field confidence, approve/reject/edit, agent explanations, inbox with filters/SLA.
+3. ✅ **LLMOps layer** — detailed tracing, prompt registry, benchmark dataset, version compare, scorecards, regression gating.
 4. **Enterprise polish** — RBAC, per-org inbox, email/API integrations, executive dashboards, audit package export, long-running workflows (Temporal).
+
+## Blocked promotion demo (Phase 3 ✅)
+
+`eval.gate` enforces  promotion rules and exits non-zero on any violation.
+Here is a real run showing a candidate version being blocked:
+
+```bash
+$ uv run python -m eval.gate \
+    --candidate eval/scorecards/candidate_v2_bad.json \
+    --baseline  eval/scorecards/production.json
+
+=== eval.gate: extraction-v2-experimental vs extraction-v1 ===
+
+  PROMOTION BLOCKED for extraction-v2-experimental:
+
+  ✗ false_auto_approve_rate: 0.025 > 0.000+0.01
+  ✗ supplier_name_accuracy: 0.625 < 0.97
+  ✗ decision_accuracy: 0.625 < 0.700 (baseline-0.05)
+
+Exit code: 1
+```
+
+And the baseline promoting cleanly:
+
+```bash
+$ uv run python -m eval.gate \
+    --candidate eval/scorecards/production.json \
+    --baseline  eval/scorecards/production.json
+
+=== eval.gate: extraction-v1 vs extraction-v1 ===
+
+  ✓ All rules passed — extraction-v1 may be promoted.
+
+Exit code: 0
+```
+
+The same rules are enforced by `POST /api/v1/prompts/{id}/promote` when targeting the
+`production` alias, so CI and the API share a single source of truth.
+
+## Eval commands
+
+```bash
+# Run eval against all 8 mandatory slices and write a scorecard
+uv run python -m eval.run --prompt-version dev --out eval/scorecards/candidate.json
+
+# Gate: compare candidate to production baseline (exit 1 = blocked)
+uv run python -m eval.gate \
+    --candidate eval/scorecards/candidate.json \
+    --baseline  eval/scorecards/production.json
+```
 
 ## UI/UX philosophy
 
@@ -94,4 +144,4 @@ language (multimodal, accessible, contextual). Inclusive design is the foundatio
 floor), backed by a living design system, purposeful microinteractions, a conversational/command
 layer, and XR as a documented long-term north star (web-first today). See `` §13.
 
-> Status: **scaffold**. Structure, tooling and decisions are in place; business logic lands phase by phase.
+> Status: **Phases 1–3 complete**. Phase 4 (Enterprise polish) is next.
