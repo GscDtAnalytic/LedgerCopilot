@@ -81,6 +81,41 @@ export interface CasesListResponse {
   page_size: number;
 }
 
+// Phase 3: prompt versions
+export interface PromptVersion {
+  id: string;
+  alias: string | null;
+  name: string;
+  description: string;
+  is_active: boolean;
+  scorecard: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// Phase 3: monitoring
+export interface StageMetric {
+  stage: string;
+  model: string;
+  total_runs: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  total_cost_usd: number;
+  avg_input_tokens: number;
+  avg_output_tokens: number;
+}
+
+export interface CaseThroughput {
+  status: string;
+  count: number;
+}
+
+export interface MonitoringData {
+  stage_metrics: StageMetric[];
+  case_throughput: CaseThroughput[];
+  total_cost_usd: number;
+  total_model_runs: number;
+}
+
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API error ${res.status} for ${path}`);
@@ -93,5 +128,12 @@ export const api = {
       apiFetch<CasesListResponse>(`/api/v1/cases?page=${page}&page_size=20`),
     get: (id: string) => apiFetch<CaseDetail>(`/api/v1/cases/${id}`),
     audit: (id: string) => apiFetch<AuditEvent[]>(`/api/v1/cases/${id}/audit`),
+  },
+  prompts: {
+    list: () => apiFetch<PromptVersion[]>("/api/v1/prompts"),
+    get: (id: string) => apiFetch<PromptVersion>(`/api/v1/prompts/${id}`),
+  },
+  monitoring: {
+    get: () => apiFetch<MonitoringData>("/api/v1/monitoring"),
   },
 };
