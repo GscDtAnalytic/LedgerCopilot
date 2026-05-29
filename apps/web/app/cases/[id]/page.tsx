@@ -12,6 +12,7 @@ import { notFound } from "next/navigation";
 import { api, type FieldValue } from "@/lib/api";
 import { AuditTimeline } from "@/components/AuditTimeline";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
+import { ReviewActions } from "@/components/ReviewActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { decisionMeta, formatDate, pct } from "@/lib/format";
 
@@ -183,6 +184,16 @@ export default async function CaseDetailPage({ params }: Props) {
               ))}
             </dl>
           </section>
+
+          {/* Review actions — only when human decision is needed */}
+          {caseData.status === "in_human_review" && (
+            <section aria-labelledby="actions-heading" className="rounded-lg border border-border bg-surface p-4">
+              <h2 id="actions-heading" className="mb-4 text-sm font-semibold uppercase tracking-wider">
+                Your decision
+              </h2>
+              <ReviewActions caseId={caseData.id} apiBase="" />
+            </section>
+          )}
 
           {/* Audit trail */}
           <section aria-labelledby="audit-heading">
