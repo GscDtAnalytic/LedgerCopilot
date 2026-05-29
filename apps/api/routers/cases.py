@@ -1,4 +1,8 @@
-"""GET /api/v1/cases — inbox, case detail, audit trail, and audit-export (Phase 4)."""
+"""GET /api/v1/cases — inbox, case detail, audit trail, and audit-export (Phase 4).
+
+Auth required: all queries scoped to user.org_id — no cross-tenant reads.
+audit-export is gated to approver and admin roles.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.auth import CurrentUser, get_current_user, require_roles
 from apps.api.database import get_session
 from apps.api.models import AuditEvent, Case, Document, ExtractionResult, ValidationResult
 from apps.api.schemas.cases import (
@@ -28,15 +33,19 @@ async def list_cases(
     page: int = 1,
     page_size: int = 20,
     session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> CasesListResponse:
-    """Paginated case inbox ordered by creation date (newest first)."""
+    """Paginated case inbox for the authenticated user's org (newest first)."""
     offset = (page - 1) * page_size
 
-    total = await session.scalar(select(func.count()).select_from(Case)) or 0
+    total = await session.scalar(
+        select(func.count()).select_from(Case).where(Case.organization_id == user.org_id)
+    ) or 0
 
     rows = await session.execute(
         select(Case, Document)
         .join(Document, Case.document_id == Document.id)
+        .where(Case.organization_id == user.org_id)
         .order_by(Case.created_at.desc())
         .offset(offset)
         .limit(page_size)
@@ -62,10 +71,11 @@ async def list_cases(
 async def get_case(
     case_id: str,
     session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> CaseDetail:
     """Full case detail including extracted fields and validation results."""
     case = await session.get(Case, case_id)
-    if case is None:
+    if case is None or case.organization_id != user.org_id:
         raise HTTPException(status_code=404, detail="Case not found.")
 
     doc = await session.get(Document, case.document_id)
@@ -113,10 +123,11 @@ async def get_case(
 async def get_audit_trail(
     case_id: str,
     session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> list[AuditEventOut]:
     """Immutable audit trail for a case, ordered chronologically."""
     case = await session.get(Case, case_id)
-    if case is None:
+    if case is None or case.organization_id != user.org_id:
         raise HTTPException(status_code=404, detail="Case not found.")
 
     rows = await session.execute(
@@ -146,10 +157,11 @@ async def get_audit_trail(
 async def export_audit_package(
     case_id: str,
     session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(require_roles("approver", "admin")),
 ) -> Response:
-    """Download the full audit package for a case as a JSON file."""
+    """Download the full audit package (JSON). Gated to approver and admin."""
     case = await session.get(Case, case_id)
-    if case is None:
+    if case is None or case.organization_id != user.org_id:
         raise HTTPException(status_code=404, detail="Case not found.")
 
     doc = await session.get(Document, case.document_id)

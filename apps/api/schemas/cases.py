@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -92,7 +93,10 @@ class CasesListResponse(BaseModel):
 class ReviewRequest(BaseModel):
     action: str  # approve | reject | edit
     note: str | None = None
-    reviewer_id: str = "anonymous"
+    # edited_fields: only required when action == "edit".
+    # Keys are ExtractionOutput field names; values follow FieldValue schema.
+    # Human-supplied values are trusted (confidence=1.0, source="human").
+    edited_fields: dict[str, Any] | None = None
 
 
 class ReviewResponse(BaseModel):

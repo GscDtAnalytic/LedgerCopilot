@@ -1,8 +1,10 @@
 """POST /api/v1/documents — upload a financial document.
 
 Creates Document + Case (RECEIVED) + first AuditEvent in a single transaction,
-then enqueues the pipeline job. A duplicate file hash returns the existing case
-rather than processing again.
+then enqueues the pipeline job. A duplicate file hash within the same org returns
+the existing case rather than processing again.
+
+Auth required: org_id is derived from the JWT, never hardcoded.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from packages.domain.state_machine import CaseStatus
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.auth import CurrentUser, get_current_user
 from apps.api.database import get_session
 from apps.api.models import AuditEvent, Case, Document
 from apps.api.schemas.cases import DocumentUploadResponse
@@ -31,6 +34,7 @@ _UPLOAD_DIR = Path("/tmp/ledgercopilot/uploads")
 async def upload_document(
     file: UploadFile,
     session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> DocumentUploadResponse:
     """Receive a financial document, create a traceable Case, enqueue processing."""
     content = await file.read()
@@ -38,10 +42,13 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     file_hash = hashlib.sha256(content).hexdigest()
+    org_id = user.org_id
 
-    # Dedup: if we already have this exact file, return the existing case.
+    # Dedup by hash within the same org — same file from different org is independent.
     existing_doc = await session.scalar(
-        select(Document).where(Document.file_hash == file_hash).limit(1)
+        select(Document)
+        .where(Document.file_hash == file_hash, Document.organization_id == org_id)
+        .limit(1)
     )
     if existing_doc is not None:
         existing_case = await session.scalar(
@@ -64,9 +71,6 @@ async def upload_document(
     # --- Create Document + Case + AuditEvent in one transaction ---
     trace_id = str(uuid.uuid4())
 
-    # Hardcoded org/pipeline for MVP; Phase 4 adds per-org routing.
-    org_id = "default"
-
     document = Document(
         organization_id=org_id,
         file_hash=file_hash,
@@ -77,7 +81,7 @@ async def upload_document(
         file_size_bytes=len(content),
     )
     session.add(document)
-    await session.flush()  # get document.id without committing
+    await session.flush()
 
     case = Case(
         organization_id=org_id,
@@ -103,7 +107,6 @@ async def upload_document(
     await session.commit()
 
     # Enqueue pipeline job (fire and forget; worker picks it up via Redis).
-    # Import here to avoid circular deps at module load time.
     try:
         from arq import create_pool
         from arq.connections import RedisSettings
@@ -115,7 +118,6 @@ async def upload_document(
         await pool.aclose()
     except Exception:
         # If Redis is down we still return the case; the job can be re-enqueued.
-        # In production, use a proper DLQ strategy.
         pass
 
     return DocumentUploadResponse(

@@ -1,8 +1,8 @@
 """AI Gateway client — the only place in the codebase that calls the LLM.
 
 Every model call goes through `gateway_call()`:
-  1. Resolves the prompt from the registry.
-  2. Calls Anthropic (or falls back to the stub extractor if no API key).
+  1. Resolves the prompt from the registry (or uses system_override from DB).
+  2. Calls Anthropic async or falls back to the stub extractor.
   3. Validates the raw JSON response with the caller-supplied Pydantic model.
   4. Records a trace (tokens, latency, cost).
 
@@ -40,7 +40,10 @@ def _get_client() -> Any:
         return None
     try:
         import anthropic
-        _anthropic_client = anthropic.Anthropic(api_key=api_key)
+        # AsyncAnthropic so gateway_call can be awaited concurrently.
+        # The k=3 Self-Consistency calls in run_extraction are gathered in parallel;
+        # the old synchronous client serialised them and blocked the event loop.
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
     except Exception:
         return None
     return _anthropic_client
@@ -56,13 +59,20 @@ async def gateway_call(
     stage: str,
     model: str | None = None,
     max_tokens: int = 1024,
+    system_override: str | None = None,
 ) -> tuple[T, ModelTrace]:
     """Call the LLM and return a validated Pydantic instance + trace.
+
+    system_override: when provided (resolved from DB by the pipeline via
+    apps/api/services/prompts.get_active_system_text), it takes precedence
+    over the in-process registry. This is what makes POST /prompts/{id}/promote
+    actually affect what the worker runs.
 
     Falls back to the stub extractor when ANTHROPIC_API_KEY is not configured,
     so the pipeline can run end-to-end in dev without credentials.
     """
     prompt_version = get_prompt(prompt_alias)
+    system_text = system_override if system_override is not None else prompt_version.system
     effective_model = model or _DEFAULT_MODEL
 
     trace = ModelTrace(
@@ -75,16 +85,14 @@ async def gateway_call(
 
     client = _get_client()
     if client is None:
-        # Stub mode: run the regex-based extractor and coerce to the response schema.
         return await _stub_response(user_message, response_model, trace)
 
     start = time.monotonic()
     try:
-
-        message = client.messages.create(
+        message = await client.messages.create(
             model=effective_model,
             max_tokens=max_tokens,
-            system=prompt_version.system,
+            system=system_text,
             messages=[{"role": "user", "content": user_message}],
         )
         raw = message.content[0].text
@@ -102,6 +110,7 @@ async def gateway_call(
                 stage=stage,
                 model=_FALLBACK_MODEL,
                 max_tokens=max_tokens,
+                system_override=system_override,
             )
         raise RuntimeError(f"gateway: all models failed — {exc}") from exc
 
@@ -137,6 +146,5 @@ async def _stub_response(
     trace.model = "stub"
     trace.finish(start, 0, 0)
 
-    # Coerce ExtractionOutput → response_model via its dict representation.
     validated: T = response_model.model_validate(fields.model_dump())
     return validated, trace

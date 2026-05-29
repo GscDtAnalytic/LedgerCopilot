@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from packages.agents.extraction import run_extraction
+from packages.domain.decisions import decide
 from packages.domain.entities import FieldValue
 from packages.policy.engine import run_policy
 from packages.validation.engine import run_validations
@@ -104,8 +105,8 @@ async def _run_fixture(fixture: dict) -> FixtureResult:
     fixture_id = fixture["id"]
     slice_name = fixture["slice"]
 
-    # Run extraction
-    fields, trace, _ = await run_extraction(
+    # Run extraction (injection_suspected propagated for accurate eval of adversarial slice)
+    fields, trace, _, injection_suspected = await run_extraction(
         case_id=fixture_id,
         trace_id=fixture_id,
         document_text=doc_text,
@@ -119,19 +120,21 @@ async def _run_fixture(fixture: dict) -> FixtureResult:
     # Policy (no supplier registry or PO in eval; use expected hints if available)
     supplier_registered = bool(expected.get("supplier_registered", False))
     po_total = expected.get("po_total", None)
-    _, _risk_score, requires_human = run_policy(
+    _, risk_score, requires_human = run_policy(
         fields=fields,
         has_blocking_failure=has_block,
         supplier_registered=supplier_registered,
         po_total=po_total,
     )
 
-    # Decision
     confidence = fields.overall_confidence()
-    if not has_block and not requires_human and confidence >= 0.85:
-        actual_decision = "auto_approve"
-    else:
-        actual_decision = "human_review"
+
+    # Decision — uses the same function as the pipeline worker.
+    # This ensures the scorecard measures what production actually runs.
+    decision_enum, _reason, _branches, _just = decide(
+        fields, has_block, risk_score, requires_human, injection_suspected
+    )
+    actual_decision = decision_enum.value
 
     # Field accuracy
     field_acc = {}

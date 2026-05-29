@@ -2,12 +2,17 @@
 
 Rules are pure functions: receive data, return result + reason. No LLM, no I/O.
 A rule that returns severity="block" prevents auto_approve regardless of confidence.
+
+Rules added beyond the original:
+- cnpj_valid: validates Brazilian CNPJ check digits (not just digit count).
+- date_order: issue_date must be <= due_date when both are present.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 from packages.domain.entities import ExtractionOutput, ValidationRuleResult
 
@@ -26,6 +31,9 @@ class RuleResult:
             severity=self.severity,
             detail=self.detail,
         )
+
+
+# ─── Individual rules ────────────────────────────────────────────────────────
 
 
 def _rule_amount_non_negative(fields: ExtractionOutput) -> RuleResult:
@@ -57,6 +65,39 @@ def _rule_cnpj_format(fields: ExtractionOutput) -> RuleResult:
     return RuleResult("cnpj_format", True, "block")
 
 
+def _validate_cnpj_check_digits(digits: str) -> bool:
+    """Validate CNPJ check digits using the official Brazilian Mod-11 algorithm."""
+    if len(set(digits)) == 1:
+        return False  # 00000000000000 and similar are invalid by definition
+
+    def _calc(nums: list[int], weights: list[int]) -> int:
+        total = sum(n * w for n, w in zip(nums, weights, strict=True))
+        remainder = total % 11
+        return 0 if remainder < 2 else 11 - remainder
+
+    nums = [int(d) for d in digits]
+    first_weights  = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    second_weights = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+
+    return (
+        _calc(nums[:12], first_weights) == nums[12]
+        and _calc(nums[:13], second_weights) == nums[13]
+    )
+
+
+def _rule_cnpj_valid(fields: ExtractionOutput) -> RuleResult:
+    """Validate CNPJ check digits (Brazilian Mod-11). Requires cnpj_format to pass."""
+    fv = fields.tax_id_cnpj
+    if fv is None or not fv.value:
+        return RuleResult("cnpj_valid", False, "warn", "no CNPJ to validate")
+    digits = re.sub(r"\D", "", str(fv.value))
+    if len(digits) != 14:
+        return RuleResult("cnpj_valid", False, "warn", "cnpj_format failed — skipping check digits")
+    if not _validate_cnpj_check_digits(digits):
+        return RuleResult("cnpj_valid", False, "block", f"CNPJ check digits invalid: {fv.value}")
+    return RuleResult("cnpj_valid", True, "block")
+
+
 def _rule_currency_present(fields: ExtractionOutput) -> RuleResult:
     fv = fields.currency
     if fv is None or not fv.value:
@@ -78,13 +119,34 @@ def _rule_supplier_name_present(fields: ExtractionOutput) -> RuleResult:
     return RuleResult("supplier_name_present", True, "warn")
 
 
+def _rule_date_order(fields: ExtractionOutput) -> RuleResult:
+    """issue_date must be <= due_date when both are present and parseable."""
+    issue_fv = fields.issue_date
+    due_fv = fields.due_date
+    if issue_fv is None or issue_fv.value is None or due_fv is None or due_fv.value is None:
+        return RuleResult("date_order", True, "warn")  # can't check without both dates
+    try:
+        issue = date.fromisoformat(str(issue_fv.value))
+        due = date.fromisoformat(str(due_fv.value))
+        if due < issue:
+            return RuleResult(
+                "date_order", False, "block",
+                f"due_date {due} is before issue_date {issue}",
+            )
+    except ValueError:
+        return RuleResult("date_order", False, "warn", "could not parse dates for comparison")
+    return RuleResult("date_order", True, "warn")
+
+
 _RULES = [
     _rule_amount_non_negative,
     _rule_cnpj_present,
     _rule_cnpj_format,
+    _rule_cnpj_valid,
     _rule_currency_present,
     _rule_document_number_present,
     _rule_supplier_name_present,
+    _rule_date_order,
 ]
 
 

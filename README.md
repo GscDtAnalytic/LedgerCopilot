@@ -14,13 +14,14 @@ like serious software.
 
 > Project guide for contributors and agents: **[``]** (authoritative).
 > AI-layer prompt design: **[``](./)**.
+> Technical backlog and known gaps: **[`RUNBOOK.md`](./RUNBOOK.md)**.
 
 ## Non-negotiable principles
 
 1. **Audit is the backbone, not a feature** — every case state transition writes an immutable `audit_event`.
 2. **Determinism before LLM** — validation, dedup, CNPJ checks, totals and policy are pure code.
 3. **HITL prefers to escalate over guessing** — when in doubt, `human_review`.
-4. **A document is untrusted data** — its content never becomes an instruction to the LLM.
+4. **A document is untrusted data** — its content is sanitised before LLM injection.
 5. **No invented values** — illegible/missing field = `null` + confidence `0.0`.
 
 See `` §2 for the full list.
@@ -31,12 +32,12 @@ See `` §2 for the full list.
 apps/web/          Next.js (App Router): inbox, case detail, exceptions, version compare, monitoring
 apps/api/          FastAPI: auth, cases, uploads, prompts/policies, endpoints
 workers/           arq jobs: the document processing pipeline
-packages/domain/   Pydantic entities + state machine + rules (pure, no I/O)
-packages/validation/      deterministic validation engine
+packages/domain/   Pydantic entities + state machine + rules + decision logic (pure, no I/O)
+packages/validation/      deterministic validation engine (CNPJ check digits, date order, ...)
 packages/policy/          policy engine + versioning
 packages/reconciliation/  reconciliation engine
-packages/agents/          Intake/Extraction/Validation/Policy/Reconciliation/Review/Audit
-packages/ai_gateway/      model abstraction, prompt registry, tracing, fallback
+packages/agents/          Extraction agent + stub extractor
+packages/ai_gateway/      model abstraction, prompt registry, tracing, fallback, sanitization
 eval/              dataset with slices, metrics, scorecards, gating
 migrations/        Alembic
 infra/             IaC + docker-compose for local dev
@@ -78,52 +79,58 @@ make check      # ruff + mypy + pytest + web lint/typecheck
 
 or individually — see the [`Makefile`](./Makefile) and `` §5.
 
-## Roadmap
+## Phase status
 
-Built in phases:
+| Phase | What | Status |
+|---|---|---|
+| **1 — Core MVP** | Upload, classification, extraction, validations, case detail, review queue, audit events | ✅ Complete |
+| **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ⚠️ (re-enqueue wired, fields in request body — needs pipeline test) · Reconciliation ⚠️ | ⚠️ Partial |
+| **3 — LLMOps layer** | Eval framework ✅, gate CLI ✅, scorecards ✅ · Prompt registry now wired to runtime ✅ · Tracing captures tokens/latency/cost ✅; prompt/completion capture planned · Dataset: 1 fixture/slice (expand for statistical significance) | ⚠️ Partial |
+| **4 — Enterprise polish** | JWT auth ✅, RBAC enforced on all endpoints ✅, org-scoped queries ✅, dashboard ✅, audit export ✅ (approver+admin only), email intake ✅ | ✅ Complete |
 
-1. ✅ **Core MVP** — upload, classification, extraction, basic validations, case detail, review queue, audit events.
-2. ✅ **Workflow intelligence** — policy engine, reconciliation, per-field confidence, approve/reject/edit, agent explanations, inbox with filters/SLA.
-3. ✅ **LLMOps layer** — detailed tracing, prompt registry, benchmark dataset, version compare, scorecards, regression gating.
-4. ✅ **Enterprise polish** — JWT auth, RBAC (analyst/approver/admin), executive dashboard, audit package export, email intake webhook.
+See [`RUNBOOK.md`](./RUNBOOK.md) for the full backlog, priorities, and acceptance criteria.
 
-## Phase 4 demo — JWT auth and RBAC ✅
+## Demo — JWT auth and RBAC
 
 Three demo users are seeded at API startup (password: `demo123`):
 
 | Email | Role | Permissions |
 |---|---|---|
-| `analyst@demo.com` | analyst | Read cases, submit reviews |
-| `approver@demo.com` | approver | All analyst + approve/reject |
-| `admin@demo.com` | admin | Full access + executive dashboard, audit export |
+| `analyst@demo.com` | analyst | Read cases, submit edit reviews |
+| `approver@demo.com` | approver | All analyst + approve/reject + audit export |
+| `admin@demo.com` | admin | Full access + create/promote prompts + dashboard |
 
 ```bash
 # Login and get a JWT
-curl -s -X POST http://localhost:8000/api/v1/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@demo.com","password":"demo123"}'
+  -d '{"email":"admin@demo.com","password":"demo123"}' | jq -r .access_token)
 
-# Executive dashboard (org-scoped when JWT present)
+# Upload a document (auth required)
+curl -s -X POST http://localhost:8000/api/v1/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/path/to/invoice.pdf"
+
+# List cases (org-scoped)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/cases
+
+# Executive dashboard
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/dashboard
 
-# Email intake — creates a document+case from an incoming email
+# Full audit package (approver/admin only)
+curl -OJ -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/api/v1/cases/{case_id}/audit-export
+
+# Email intake
 curl -s -X POST http://localhost:8000/api/v1/intake/email \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"from_address":"supplier@acme.com","subject":"Invoice #2024-001","body_text":"..."}'
-
-# Full audit package for a case (JSON download)
-curl -OJ http://localhost:8000/api/v1/cases/{case_id}/audit-export
 ```
 
-The frontend at `:3000` shows the role badge in the top bar, a `/login` page with
-demo quick-fill buttons, and an `/dashboard` executive view. The "Export audit package"
-button on case detail is gated to approver and admin roles.
+## Blocked promotion demo (eval.gate)
 
-## Blocked promotion demo (Phase 3 ✅)
-
-`eval.gate` enforces  promotion rules and exits non-zero on any violation.
-Here is a real run showing a candidate version being blocked:
+`eval.gate` enforces ` promotion rules and exits non-zero on any violation.
 
 ```bash
 $ uv run python -m eval.gate \
@@ -141,22 +148,9 @@ $ uv run python -m eval.gate \
 Exit code: 1
 ```
 
-And the baseline promoting cleanly:
-
-```bash
-$ uv run python -m eval.gate \
-    --candidate eval/scorecards/production.json \
-    --baseline  eval/scorecards/production.json
-
-=== eval.gate: extraction-v1 vs extraction-v1 ===
-
-  ✓ All rules passed — extraction-v1 may be promoted.
-
-Exit code: 0
-```
-
-The same rules are enforced by `POST /api/v1/prompts/{id}/promote` when targeting the
-`production` alias, so CI and the API share a single source of truth.
+The same rules are enforced by `POST /api/v1/prompts/{id}/promote` (admin only) when targeting
+the `production` alias. Promoting to production wires the new `system_text` directly into the
+pipeline worker — the registry is no longer in-process only.
 
 ## Eval commands
 
@@ -176,5 +170,3 @@ The UI adapts to the user, disappears when not needed (calm technology), and spe
 language (multimodal, accessible, contextual). Inclusive design is the foundation (WCAG 2.2 AA
 floor), backed by a living design system, purposeful microinteractions, a conversational/command
 layer, and XR as a documented long-term north star (web-first today). See `` §13.
-
-> Status: **Phases 1–4 complete.**

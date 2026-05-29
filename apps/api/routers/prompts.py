@@ -1,14 +1,17 @@
 """Prompt registry API — CRUD for versioned prompts.
 
 Endpoints:
-  GET  /api/v1/prompts           — list all prompt versions
-  POST /api/v1/prompts           — create a new version (lands as alias=None)
-  GET  /api/v1/prompts/{id}      — get one version
-  POST /api/v1/prompts/{id}/promote — set alias (dev|staging|production);
-                                      staging→production requires a passing scorecard
+  GET  /api/v1/prompts           — list all active prompt versions  (any authenticated user)
+  POST /api/v1/prompts           — create a new version             (admin only)
+  GET  /api/v1/prompts/{id}      — get one version                  (any authenticated user)
+  POST /api/v1/prompts/{id}/promote — set alias (dev|staging|production)
+                                      staging→production requires passing scorecard
+                                     
 
 The staging→production gate enforces  at the API level. eval.gate
-enforces the same rules as a CLI gate for CI usage.
+enforces the same rules as a CLI gate for CI usage. When promoted, the new system_text
+is picked up by the pipeline worker on the next invocation via apps/api/services/prompts
+.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.auth import CurrentUser, get_current_user, require_roles
 from apps.api.database import get_session
 from apps.api.models.prompt_version import PromptVersion
 
@@ -68,7 +72,10 @@ def _row_to_out(pv: PromptVersion) -> PromptVersionOut:
 
 
 @router.get("", response_model=list[PromptVersionOut])
-async def list_prompts(session: AsyncSession = Depends(get_session)) -> list[PromptVersionOut]:
+async def list_prompts(
+    session: AsyncSession = Depends(get_session),
+    _user: CurrentUser = Depends(get_current_user),
+) -> list[PromptVersionOut]:
     rows = await session.execute(
         select(PromptVersion).where(PromptVersion.is_active).order_by(PromptVersion.created_at.desc())
     )
@@ -76,8 +83,10 @@ async def list_prompts(session: AsyncSession = Depends(get_session)) -> list[Pro
 
 
 @router.get("/{prompt_id}", response_model=PromptVersionOut)
-async def get_prompt(
-    prompt_id: str, session: AsyncSession = Depends(get_session)
+async def get_prompt_version(
+    prompt_id: str,
+    session: AsyncSession = Depends(get_session),
+    _user: CurrentUser = Depends(get_current_user),
 ) -> PromptVersionOut:
     pv = await session.get(PromptVersion, prompt_id)
     if pv is None:
@@ -87,7 +96,9 @@ async def get_prompt(
 
 @router.post("", response_model=PromptVersionOut, status_code=201)
 async def create_prompt(
-    body: CreatePromptRequest, session: AsyncSession = Depends(get_session)
+    body: CreatePromptRequest,
+    session: AsyncSession = Depends(get_session),
+    _user: CurrentUser = Depends(require_roles("admin")),
 ) -> PromptVersionOut:
     pv = PromptVersion(name=body.name, description=body.description, system_text=body.system_text)
     session.add(pv)
@@ -101,12 +112,13 @@ async def promote_prompt(
     prompt_id: str,
     body: PromoteRequest,
     session: AsyncSession = Depends(get_session),
+    _user: CurrentUser = Depends(require_roles("admin")),
 ) -> PromptVersionOut:
-    """Assign an alias to a prompt version.
+    """Assign an alias to a prompt version (admin only).
 
-    staging → production requires a scorecard where:
-    - false_auto_approve_rate is present (i.e. eval.run was executed)
-    - no gating rule is violated (the same rules as eval.gate)
+    Promoting to 'production' requires a passing scorecard.
+    Once promoted, the pipeline worker picks up the new system_text on the next
+    invocation via apps/api/services/prompts.get_active_system_text.
     """
     if body.alias not in _VALID_ALIASES:
         raise HTTPException(status_code=422, detail=f"alias must be one of {_VALID_ALIASES}")
@@ -115,7 +127,6 @@ async def promote_prompt(
     if pv is None:
         raise HTTPException(status_code=404, detail="Prompt version not found.")
 
-    # For production promotion: require a passing scorecard.
     if body.alias in _GATING_ALIASES:
         if not pv.scorecard:
             raise HTTPException(
