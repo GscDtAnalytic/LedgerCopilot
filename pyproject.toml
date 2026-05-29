@@ -52,6 +52,8 @@ package = true
 target-version = "py312"
 line-length = 100
 src = ["apps", "packages", "workers", "eval"]
+# Alembic-generated migration files are not hand-maintained code.
+exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = [

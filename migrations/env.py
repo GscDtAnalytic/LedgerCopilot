@@ -28,8 +28,11 @@ config.set_main_option(
     ),
 )
 
-# Set to the Declarative Base metadata once models exist (Phase 1).
-target_metadata = None
+# These imports must come after the alembic config block above.
+import apps.api.models  # noqa: E402, F401 — registers all ORM models on Base.metadata
+from apps.api.models.base import Base  # noqa: E402
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
