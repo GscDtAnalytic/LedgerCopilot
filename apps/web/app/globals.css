@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Token values as CSS variables (RGB channels, so Tailwind's <alpha-value> works).
+ * Semantic roles only — see src/design-system/tokens.ts. Theming = remapping here.
+ * Aesthetic: calm, high contrast, contained soft-neobrutalism + sparing glass,
+ * always subordinate to legibility.
+ */
+:root {
+  color-scheme: light dark;
+
+  --color-background: 250 250 249;
+  --color-surface: 255 255 255;
+  --color-foreground: 24 24 27;
+  --color-muted: 113 113 122;
+  --color-border: 228 228 231;
+  --color-focus: 37 99 235;
+  --color-primary: 30 58 138;
+  --color-primary-foreground: 248 250 252;
+  --color-success: 21 128 61;
+  --color-warning: 180 83 9;
+  --color-danger: 185 28 28;
+
+  /* Translucent glass surface — used sparingly (overlays, command palette). */
+  --surface-translucent: rgb(255 255 255 / 0.72);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: 9 9 11;
+    --color-surface: 24 24 27;
+    --color-foreground: 244 244 245;
+    --color-muted: 161 161 170;
+    --color-border: 39 39 42;
+    --color-focus: 96 165 250;
+    --color-primary: 191 219 254;
+    --color-primary-foreground: 9 9 11;
+    --color-success: 74 222 128;
+    --color-warning: 251 191 36;
+    --color-danger: 248 113 113;
+    --surface-translucent: rgb(24 24 27 / 0.72);
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Inclusive design: focus is always visible and never removed. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-focus ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Calm tech: honor the user's motion preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
