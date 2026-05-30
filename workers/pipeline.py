@@ -24,9 +24,9 @@ AuditEvent in the SAME transaction as the Case.status update.
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, ClassVar
 
 from apps.api.config import settings
@@ -37,19 +37,24 @@ from apps.api.models import (
     DeadLetter,
     Document,
     ExtractionResult,
+    PolicyDecision,
     ReconciliationResult,
     ValidationResult,
 )
 from apps.api.services.prompts import get_active_system_text
 from apps.api.services.tracing import persist_trace
 from packages.agents.extraction import run_extraction
+from packages.agents.intake import run_intake
+from packages.agents.review_assistant import ReviewSignals, build_explanation
 from packages.domain.business_key import compute_business_key
 from packages.domain.decisions import decide
-from packages.domain.entities import ExtractionOutput
-from packages.domain.enums import ActorType, Decision, DocumentType
+from packages.domain.entities import ExtractionOutput, FieldValue
+from packages.domain.enums import ActorType, Decision
 from packages.domain.state_machine import CaseStatus, assert_transition
+from packages.ocr.engine import OcrResult, extract_text
 from packages.policy.engine import run_policy
 from packages.reconciliation.engine import ReconciliationContext, ReconciliationOutput, reconcile
+from packages.storage.factory import get_storage
 from packages.validation.engine import run_validations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -154,21 +159,27 @@ async def _transition(
 # ─── Stage helpers ────────────────────────────────────────────────────────────
 
 
-def _classify_document_type(filename: str, content: bytes) -> str:
-    """Deterministic classification from filename/magic bytes (no LLM)."""
-    name = filename.lower()
-    if "boleto" in name or "slip" in name:
-        return DocumentType.BOLETO
-    if "comprovante" in name or "receipt" in name:
-        return DocumentType.RECEIPT
-    return DocumentType.INVOICE
+def _apply_ocr_cap(fields: ExtractionOutput, ocr_conf: float) -> ExtractionOutput:
+    """Cap all field confidences by OCR quality (wiki: confiança por campo = min(ocr, modelo)).
 
+    When the OCR engine is uncertain, the downstream LLM cannot produce better
+    field confidence than the quality of the text it received.
+    """
 
-def _doc_to_text(content: bytes) -> str:
-    try:
-        return content.decode("utf-8", errors="replace")
-    except Exception:
-        return ""
+    def _cap(fv: FieldValue | None) -> FieldValue | None:
+        if fv is None:
+            return None
+        return FieldValue(value=fv.value, confidence=min(fv.confidence, ocr_conf), source=fv.source)
+
+    return ExtractionOutput(
+        supplier_name=_cap(fields.supplier_name),
+        tax_id_cnpj=_cap(fields.tax_id_cnpj),
+        total_amount=_cap(fields.total_amount),
+        currency=_cap(fields.currency),
+        issue_date=_cap(fields.issue_date),
+        due_date=_cap(fields.due_date),
+        document_number=_cap(fields.document_number),
+    )
 
 
 # ─── Main pipeline job ────────────────────────────────────────────────────────
@@ -208,6 +219,19 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
     """Inner pipeline logic, extracted so process_document can wrap it cleanly."""
     logger.info("pipeline.start case_id=%s", case_id)
 
+    # Prometheus: import best-effort so missing dep never breaks the pipeline.
+    try:
+        from packages.observability.metrics import (
+            cases_decided_total,
+            cases_received_total,
+            injection_suspected_total,
+            pipeline_stage_duration_ms,
+        )
+
+        _obs = True
+    except Exception:
+        _obs = False
+
     async with async_session_factory() as session:
         case = await session.get(Case, case_id)
         if case is None:
@@ -219,25 +243,55 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             logger.error("document not found for case: %s", case_id)
             return
 
-        content = Path(doc.storage_path).read_bytes()
-        doc_text = _doc_to_text(content)
+        #: read bytes via storage backend (local dev; GCS/S3 in prod).
+        storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+        content = storage.get(doc.storage_path)
+
+        #: extract text with OCR if needed; annotate Document with provenance.
+        ocr_result: OcrResult = extract_text(content, doc.content_type)
+        doc_text = ocr_result.text
+        if doc.ocr_source is None:
+            doc.ocr_source = ocr_result.source
+            doc.ocr_confidence = ocr_result.confidence
+            await session.commit()
+        for w in ocr_result.warnings:
+            logger.warning("ocr warning case_id=%s: %s", case_id, w)
 
         # Resolve the active production prompt from DB.
         # Falls back to None → ai_gateway uses its in-process registry.
         system_override = await get_active_system_text("production", session)
 
-        # ── S1: CLASSIFY ──────────────────────────────────────────────────────
+        # ── S1: CLASSIFY (Intake agent — type + language + parse + quality) ────
         if CaseStatus(case.status) == CaseStatus.RECEIVED:
-            doc_type = _classify_document_type(doc.original_filename, content)
-            case.document_type = doc_type
+            if _obs:
+                cases_received_total.labels(org_id=case.organization_id).inc()
+            _t1 = time.monotonic()
+            intake = run_intake(
+                filename=doc.original_filename,
+                content=content,
+                content_type=doc.content_type,
+                text=doc_text,
+                ocr_confidence=ocr_result.confidence,
+                ocr_is_low_quality=ocr_result.is_low_quality,
+            )
+            case.document_type = intake.document_type
             await _transition(
                 session,
                 case,
                 CaseStatus.CLASSIFIED,
                 ActorType.SYSTEM,
-                {"document_type": doc_type},
+                {
+                    "document_type": intake.document_type,
+                    "language": intake.language,
+                    "parse_strategy": intake.parse_strategy,
+                    "out_of_scope_reason": intake.out_of_scope_reason,
+                },
             )
             await session.commit()
+            if _obs:
+                pipeline_stage_duration_ms.labels(stage="classify").observe(
+                    (time.monotonic() - _t1) * 1000
+                )
 
         # ── S2: EXTRACT ───────────────────────────────────────────────────────
         # Local state — populated either by running extraction or loaded from DB.
@@ -247,12 +301,26 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         injection_suspected = False
 
         if CaseStatus(case.status) == CaseStatus.CLASSIFIED:
+            _t2 = time.monotonic()
             fields, ext_trace, low_agreement, injection_suspected = await run_extraction(
                 case_id=case.id,
                 trace_id=case.trace_id,
                 document_text=doc_text,
+                # Standard mode: system_override from DB.
+                # Quarantine mode: system_override blocked inside run_extraction.
                 system_override=system_override,
+                quarantine_mode=settings.dual_llm_enabled,
+                quarantine_model=settings.quarantine_model if settings.dual_llm_enabled else None,
             )
+
+            #: cap field confidences by OCR quality.
+            # Wiki: "confiança por campo derivada do OCR + modelo" — the LLM cannot
+            # produce better confidence than the quality of the text it received.
+            if ocr_result.is_low_quality:
+                fields = _apply_ocr_cap(fields, ocr_result.confidence)
+                if "ocr_quality" not in low_agreement:
+                    low_agreement.append("ocr_quality")
+
             overall_conf = fields.overall_confidence()
 
             extraction = ExtractionResult(
@@ -261,6 +329,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 prompt_version_id=ext_trace.prompt_version_id,
                 model_name=ext_trace.model,
                 overall_confidence=overall_conf,
+                injection_suspected=injection_suspected,
             )
             session.add(extraction)
             await persist_trace(session, ext_trace)
@@ -275,6 +344,9 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                     "model": ext_trace.model,
                     "low_agreement_fields": low_agreement,
                     "injection_suspected": injection_suspected,
+                    "ocr_source": ocr_result.source,
+                    "ocr_confidence": ocr_result.confidence,
+                    "dual_llm_mode": settings.dual_llm_enabled,
                     "critical_fields_extracted": sum(
                         1 for f in fields.critical_fields() if f and f.value is not None
                     ),
@@ -283,6 +355,12 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 model_name=ext_trace.model,
             )
             await session.commit()
+            if _obs:
+                pipeline_stage_duration_ms.labels(stage="extract").observe(
+                    (time.monotonic() - _t2) * 1000
+                )
+                if injection_suspected:
+                    injection_suspected_total.inc()
 
         # Resume path: load extraction from DB if stage was already done.
         if fields is None:
@@ -294,8 +372,10 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             )
             if ext_row is not None:
                 fields = ExtractionOutput.model_validate(ext_row.fields_json)
-                # injection_suspected is not persisted; conservative default is False
-                # (human editors are trusted, and the sanitiser ran on the original text).
+                # Reload the persisted injection signal (LC migration c4d5e6f7a8b9) so a
+                # resumed run does not silently lose it — context propagation across
+                # stages.
+                injection_suspected = ext_row.injection_suspected
 
         if fields is None:
             logger.error("no extraction result for case %s — aborting", case_id)
@@ -311,9 +391,12 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
 
         # ── S3: VALIDATE ──────────────────────────────────────────────────────
         has_block = False
+        failed_block_rules: list[str] = []  # for the Review Assistant explanation
 
         if CaseStatus(case.status) == CaseStatus.EXTRACTED:
+            _t3 = time.monotonic()
             rules, has_block = run_validations(fields)
+            failed_block_rules = [r.rule for r in rules if r.severity == "block" and not r.passed]
             validation = ValidationResult(
                 case_id=case.id,
                 rules_json=[r.model_dump() for r in rules],
@@ -332,6 +415,10 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 },
             )
             await session.commit()
+            if _obs:
+                pipeline_stage_duration_ms.labels(stage="validate").observe(
+                    (time.monotonic() - _t3) * 1000
+                )
 
         # Resume path: load has_block from DB if validation already ran.
         if CaseStatus(case.status) != CaseStatus.EXTRACTED:
@@ -343,12 +430,19 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             )
             if val_row is not None:
                 has_block = val_row.has_blocking_failure
+                failed_block_rules = [
+                    r["rule"]
+                    for r in (val_row.rules_json or [])
+                    if r.get("severity") == "block" and not r.get("passed")
+                ]
 
         # ── S4: RECONCILE ─────────────────────────────────────────────────────
         # Local state populated here and reloaded on the resume path.
         recon_out: ReconciliationOutput | None = None
+        duplicate_case_id: str | None = None  # for the Review Assistant explanation
 
         if CaseStatus(case.status) == CaseStatus.VALIDATED:
+            _t4 = time.monotonic()
             # Business-key dedup check: look for a non-rejected,
             # non-initial case in the same org with the same business key.
             # States excluded: received/classified (brand new, may still fail);
@@ -365,6 +459,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                     )
                 )
                 business_key_seen = dup is not None
+                duplicate_case_id = dup.id if dup is not None else None
 
             # Context injected at the I/O boundary. PO/payment data comes from
             # external systems (Phase 3); business_key_seen now set by
@@ -397,6 +492,10 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 },
             )
             await session.commit()
+            if _obs:
+                pipeline_stage_duration_ms.labels(stage="reconcile").observe(
+                    (time.monotonic() - _t4) * 1000
+                )
 
         # Resume path: load reconciliation result if S4 was already done.
         if recon_out is None and CaseStatus(case.status) != CaseStatus.VALIDATED:
@@ -420,6 +519,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         requires_human = False
 
         if CaseStatus(case.status) == CaseStatus.RECONCILED:
+            _t5 = time.monotonic()
             policy_decisions, risk_score, requires_human = run_policy(
                 fields=fields,
                 has_blocking_failure=has_block,
@@ -459,13 +559,30 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 # prompt_version_id which left the column null on this transition).
                 policy_version_id=_POLICY_VERSION_ID,
             )
+            # Materialise each policy result as a queryable row.
+            for pd in policy_decisions:
+                session.add(
+                    PolicyDecision(
+                        case_id=case_id,
+                        policy_id=pd.policy_id,
+                        verdict=pd.verdict,
+                        requires_human=pd.requires_human,
+                        risk_delta=pd.risk_delta,
+                        reason=pd.reason,
+                        policy_version_id=_POLICY_VERSION_ID,
+                    )
+                )
             await session.commit()
+            if _obs:
+                pipeline_stage_duration_ms.labels(stage="policy").observe(
+                    (time.monotonic() - _t5) * 1000
+                )
 
         # ── S6: DECIDE ────────────────────────────────────────────────────────
         if CaseStatus(case.status) == CaseStatus.POLICY_EVALUATED:
             recon_reject_reason = recon_out.reject_reason if recon_out else None
             # Use the shared domain function.
-            decision, reason_code, branches, justification = decide(
+            decision, reason_code, branches, _decide_just = decide(
                 fields,
                 has_block,
                 risk_score,
@@ -473,9 +590,43 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 injection_suspected,
                 recon_reject_reason=recon_reject_reason,
             )
+            # Review Assistant (Agent 6): build the analyst-facing explanation from
+            # the structured signals the deterministic engines produced. Deterministic,
+            # so the justification is faithful to what actually drove the decision.
+            signals = ReviewSignals(
+                decision=decision,
+                confidence=fields.overall_confidence(),
+                has_blocking_failure=has_block,
+                failed_block_rules=failed_block_rules,
+                injection_suspected=injection_suspected,
+                supplier_unknown=any(
+                    getattr(d, "policy_id", None) == "p-supplier-unknown" for d in policy_decisions
+                ),
+                missing_purchase_order=any(
+                    getattr(d, "policy_id", None) == "p-amount-delta-missing"
+                    for d in policy_decisions
+                ),
+                value_mismatch=bool(
+                    recon_out
+                    and not recon_out.matched
+                    and not recon_out.reject_reason
+                    and recon_out.deltas
+                ),
+                value_delta_pct=(
+                    recon_out.deltas[0].delta_pct if recon_out and recon_out.deltas else None
+                ),
+                duplicate_of=(
+                    duplicate_case_id if recon_reject_reason == "duplicate_invoice" else None
+                ),
+                supplier_blocklisted=recon_reject_reason == "supplier_blocklisted",
+            )
+            explanation = build_explanation(signals)
+
             case.decision = decision
-            case.reason_code = reason_code
-            case.justification = justification
+            # Prefer the granular reason tags from the Review Assistant when it has
+            # something more specific than decide()'s coarse code (e.g. on review).
+            case.reason_code = "+".join(explanation.reasons) or reason_code
+            case.justification = explanation.summary
             prompt_vid = ext_trace.prompt_version_id if ext_trace else None
             await _transition(
                 session,
@@ -484,7 +635,10 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 ActorType.AGENT,
                 {
                     "decision_branches": branches.model_dump(),
-                    "reason_code": reason_code,
+                    "reason_code": case.reason_code,
+                    "decide_reason_code": reason_code,
+                    "evidence_refs": explanation.evidence_refs,
+                    "justification": explanation.summary,
                     "prompt_version_id": prompt_vid,
                 },
                 prompt_version_id=prompt_vid,
@@ -507,6 +661,31 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 {"justification": case.justification},
             )
             await session.commit()
+            if _obs:
+                cases_decided_total.labels(
+                    decision=terminal_status.value, org_id=case.organization_id
+                ).inc()
+
+            #: start durable Temporal HITL workflow when case needs human review.
+            # Temporal tracks the wait durably and fires the SLA timer; the arq pipeline
+            # is done at this point — it does not re-run until the reviewer edits the case.
+            if terminal_status == CaseStatus.IN_HUMAN_REVIEW:
+                try:
+                    from apps.api.temporal_client import start_hitl_workflow
+
+                    await start_hitl_workflow(case_id)
+                    if _obs:
+                        from packages.observability.metrics import hitl_workflows_started_total
+
+                        hitl_workflows_started_total.inc()
+                except Exception as exc:
+                    # Temporal unavailable — log warning; case is correctly in
+                    # IN_HUMAN_REVIEW in DB. The review endpoint still works without Temporal.
+                    logger.warning(
+                        "pipeline.hitl_workflow_start_failed case_id=%s error=%s",
+                        case_id,
+                        exc,
+                    )
 
     logger.info("pipeline.done case_id=%s decision=%s", case_id, case.decision)
 
