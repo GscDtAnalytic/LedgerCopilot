@@ -50,6 +50,7 @@ from apps.api.services.reference import (
 )
 from apps.api.services.tracing import persist_trace
 from arq import cron
+from arq.connections import RedisSettings
 from packages.agents.extraction import run_extraction
 from packages.agents.intake import run_intake
 from packages.agents.review_assistant import ReviewSignals, build_explanation
@@ -740,6 +741,7 @@ class WorkerSettings:
     """
 
     functions: ClassVar[list[Callable[..., Any]]] = [process_document]
-    redis_settings = settings.redis_url
+    # arq needs a RedisSettings object, not a DSN string (matches apps/api/redis_pool.py).
+    redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_tries = _MAX_TRIES
     cron_jobs: ClassVar[list[Any]] = [cron(scan_bucket, minute=set(range(0, 60, 5)))]
