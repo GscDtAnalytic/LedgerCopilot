@@ -1,0 +1,14 @@
+{
+  "id": "items_mismatch_001",
+  "slice": "items_mismatch",
+  "description": "Line items do not sum to the stated total — blocking validation failure.",
+  "document_text": "NOTA FISCAL ELETRONICA\nFornecedor: Acme Fornecedora Ltda\nCNPJ: 11.444.777/0001-61\nNumero: 778235\nData de Emissao: 2024-03-15\nData de Vencimento: 2024-04-15\nValor Total: R$ 12.000,00\nItem: Widget A | Qtd: 2 | Unit: R$ 1.000,00 | Total: R$ 2.000,00\nItem: Widget B | Qtd: 3 | Unit: R$ 1.000,00 | Total: R$ 3.000,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "11.444.777/0001-61",
+    "total_amount": 12000.0,
+    "currency": "BRL",
+    "document_number": "778235",
+    "expected_decision": "human_review"
+  }
+}

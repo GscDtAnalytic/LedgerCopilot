@@ -16,7 +16,7 @@ from packages.agents.extraction import run_extraction
 from packages.domain.decisions import decide
 from packages.domain.entities import FieldValue
 from packages.policy.engine import run_policy
-from packages.validation.engine import run_validations
+from packages.validation.engine import ValidationContext, run_validations
 
 _DATASET_ROOT = Path(__file__).parent / "dataset"
 
@@ -120,17 +120,26 @@ async def _run_fixture(fixture: dict) -> FixtureResult:
 
     latency_ms = (time.monotonic() - start) * 1000
 
-    # Validate
-    _rules, has_block = run_validations(fields)
+    # Validate — inject valid cost-center codes from the fixture's hints (if any),
+    # so the cost_center_invalid slice can exercise the blocking rule.
+    valid_ccs = expected.get("valid_cost_centers")
+    val_ctx = ValidationContext(
+        valid_cost_centers=frozenset(valid_ccs) if valid_ccs is not None else None
+    )
+    _rules, has_block = run_validations(fields, val_ctx)
 
     # Policy (no supplier registry or PO in eval; use expected hints if available)
     supplier_registered = bool(expected.get("supplier_registered", False))
     po_total = expected.get("po_total", None)
+    amount_limit = expected.get("amount_limit", 5000.0)
+    justification_present = bool(expected.get("justification_present", False))
     _, risk_score, requires_human = run_policy(
         fields=fields,
         has_blocking_failure=has_block,
         supplier_registered=supplier_registered,
         po_total=po_total,
+        amount_limit=amount_limit,
+        justification_present=justification_present,
     )
 
     confidence = fields.overall_confidence()

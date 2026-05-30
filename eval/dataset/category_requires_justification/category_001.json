@@ -1,0 +1,15 @@
+{
+  "id": "category_requires_justification_001",
+  "slice": "category_requires_justification",
+  "description": "Legal-category expense without a justification — must escalate for justification.",
+  "document_text": "NOTA FISCAL ELETRONICA\nFornecedor: Acme Fornecedora Ltda\nCNPJ: 11.444.777/0001-61\nNumero: 778234\nData de Emissao: 2024-03-15\nData de Vencimento: 2024-04-15\nTotal: R$ 2.500,00\nCategoria: legal\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "11.444.777/0001-61",
+    "total_amount": 2500.0,
+    "currency": "BRL",
+    "document_number": "778234",
+    "justification_present": false,
+    "expected_decision": "human_review"
+  }
+}

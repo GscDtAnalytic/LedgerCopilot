@@ -86,7 +86,24 @@ or individually — see the [`Makefile`](./Makefile) and `` §5.
 | **1 — Core MVP** | Upload, classification, extraction, validations, case detail, review queue, audit events | ✅ Complete |
 | **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ✅ · Reconciliation ✅ | ✅ Complete |
 | **3 — LLMOps layer** | Eval framework ✅, gate CLI ✅, scorecards ✅ · Prompt registry wired to runtime ✅ · Tracing captures tokens/latency/cost + redacted prompt/completion ✅ · Dataset: 1 fixture/slice (expand for statistical significance) | ✅ Complete |
-| **4 — Enterprise polish** | JWT auth ✅, RBAC enforced on all endpoints ✅, org-scoped queries ✅, dashboard ✅, audit export ✅ (approver+admin only), email intake ✅ | ✅ Complete |
+| **4 — Enterprise polish** | JWT auth ✅, RBAC enforced on all endpoints ✅, org-scoped queries ✅, dashboard ✅, audit export ✅ (approver+admin only) · **Ingestion channels**: upload ✅, email ✅, CSV/XLSX ✅, ERP/API ✅, bucket scan ✅ · **Reference data** (suppliers/POs/payments/cost centers) wired into policy + reconciliation ✅ | ✅ Complete |
+
+### Full functional scope
+
+- **Ingestion channels**: manual upload, email webhook (`/intake/email`), CSV/XLSX
+  batch (`/intake/csv`, one case per row), ERP/automation JSON (`/intake/erp`), and a bucket scan
+  cron that ingests files dropped into storage out-of-band.
+- **Extraction fields**: supplier, CNPJ, total, currency, issue/due dates, document number, plus
+  **line items**, **cost center** and **category**.
+- **Validation** (deterministic): amount sign, CNPJ presence/format/check-digits, date order,
+  currency, **sum-of-items vs total**, **cost-center membership** (against the org registry).
+- **Policy** (deterministic, versioned): low/medium confidence, unknown supplier, amount-vs-PO
+  delta, **amount over auto-approve limit**, **category requires justification**, **urgent payment
+  → double check** (`requires_dual_approval`).
+- **Reconciliation**: document vs PO, vs payment/ledger, vs history (business-key dedup), plus
+  supplier blocklist hard-reject — all against seeded reference data.
+- **HITL queue** (5 actions): approve, reject, edit, **request more context** (annotation, no
+  status change), **resend to stage** (re-enters the resumable pipeline at `extracted`/`validated`).
 
 See [`RUNBOOK.md`](./RUNBOOK.md) for the full backlog, priorities, and acceptance criteria.
 
@@ -121,12 +138,34 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/dashboard
 curl -OJ -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/api/v1/cases/{case_id}/audit-export
 
-# Email intake
+# Email intake (creates a case AND queues the pipeline)
 curl -s -X POST http://localhost:8000/api/v1/intake/email \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"from_address":"supplier@acme.com","subject":"Invoice #2024-001","body_text":"..."}'
+
+# CSV/XLSX intake — one case per data row
+curl -s -X POST http://localhost:8000/api/v1/intake/csv \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/path/to/invoices.csv"
+
+# ERP / automation intake — structured JSON
+curl -s -X POST http://localhost:8000/api/v1/intake/erp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"source_system":"sap","external_id":"DOC-42","fields":{"fornecedor":"Acme","cnpj":"11.444.777/0001-61","numero":"778231","total":"12000.00"}}'
+
+# HITL: request more context / resend to an earlier stage
+curl -s -X POST http://localhost:8000/api/v1/cases/{case_id}/review \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"action":"request_context","note":"Need the matching PO number"}'
+curl -s -X POST http://localhost:8000/api/v1/cases/{case_id}/review \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"action":"resend_to_stage","target_stage":"validated"}'
 ```
+
+The bucket-scan channel runs automatically as an arq cron job (every 5 min) in the worker —
+drop a file into the storage directory and a case appears.
 
 ## Blocked promotion demo (eval.gate)
 
@@ -155,7 +194,7 @@ pipeline worker — the registry is no longer in-process only.
 ## Eval commands
 
 ```bash
-# Run eval against all 8 mandatory slices and write a scorecard
+# Run eval against all slices (8 mandatory + 5 for the new rules) and write a scorecard
 uv run python -m eval.run --prompt-version dev --out eval/scorecards/candidate.json
 
 # Gate: compare candidate to production baseline (exit 1 = blocked)

@@ -1,0 +1,15 @@
+{
+  "id": "amount_over_threshold_001",
+  "slice": "amount_over_threshold",
+  "description": "Well-formed invoice whose total exceeds the auto-approve amount limit — must escalate.",
+  "document_text": "NOTA FISCAL ELETRONICA\nFornecedor: Acme Fornecedora Ltda\nCNPJ: 11.444.777/0001-61\nNumero: 778231\nData de Emissao: 2024-03-15\nData de Vencimento: 2024-04-15\nTotal: R$ 12.000,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "11.444.777/0001-61",
+    "total_amount": 12000.0,
+    "currency": "BRL",
+    "document_number": "778231",
+    "amount_limit": 5000.0,
+    "expected_decision": "human_review"
+  }
+}

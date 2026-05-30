@@ -1,0 +1,14 @@
+{
+  "id": "urgent_payment_001",
+  "slice": "urgent_payment",
+  "description": "Payment due within 3 days of issue — urgent, requires a double check.",
+  "document_text": "NOTA FISCAL ELETRONICA\nFornecedor: Acme Fornecedora Ltda\nCNPJ: 11.444.777/0001-61\nNumero: 778233\nData de Emissao: 2024-03-15\nData de Vencimento: 2024-03-17\nTotal: R$ 2.000,00\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "11.444.777/0001-61",
+    "total_amount": 2000.0,
+    "currency": "BRL",
+    "document_number": "778233",
+    "expected_decision": "human_review"
+  }
+}

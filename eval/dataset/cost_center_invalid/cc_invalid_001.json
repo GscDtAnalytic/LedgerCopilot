@@ -1,0 +1,15 @@
+{
+  "id": "cost_center_invalid_001",
+  "slice": "cost_center_invalid",
+  "description": "Invoice referencing a cost center not in the org registry — blocking validation failure.",
+  "document_text": "NOTA FISCAL ELETRONICA\nFornecedor: Acme Fornecedora Ltda\nCNPJ: 11.444.777/0001-61\nNumero: 778232\nData de Emissao: 2024-03-15\nData de Vencimento: 2024-04-15\nTotal: R$ 3.000,00\nCentro de Custo: CC-999\nMoeda: BRL",
+  "expected": {
+    "supplier_name": "Acme Fornecedora Ltda",
+    "tax_id_cnpj": "11.444.777/0001-61",
+    "total_amount": 3000.0,
+    "currency": "BRL",
+    "document_number": "778232",
+    "valid_cost_centers": ["CC-100", "CC-200"],
+    "expected_decision": "human_review"
+  }
+}
