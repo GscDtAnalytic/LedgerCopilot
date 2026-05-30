@@ -77,7 +77,9 @@ async def list_prompts(
     _user: CurrentUser = Depends(get_current_user),
 ) -> list[PromptVersionOut]:
     rows = await session.execute(
-        select(PromptVersion).where(PromptVersion.is_active).order_by(PromptVersion.created_at.desc())
+        select(PromptVersion)
+        .where(PromptVersion.is_active)
+        .order_by(PromptVersion.created_at.desc())
     )
     return [_row_to_out(r) for (r,) in rows]
 
@@ -150,13 +152,10 @@ async def promote_prompt(
 
 def _check_gating_rules(scorecard: dict, version_id: str) -> None:
     """Raise HTTPException if any promotion rule from  is violated."""
-    from eval.gate import (
-        MAX_FALSE_AUTO_APPROVE_DELTA,
-        MIN_SUPPLIER_NAME_ACCURACY,
-    )
+    from eval.gate import MAX_FALSE_AUTO_APPROVE_DELTA, MIN_CRITICAL_FIELD_ACCURACY
 
     far = scorecard.get("false_auto_approve_rate", 0.0)
-    sna = scorecard.get("supplier_name_accuracy", 1.0)
+    cfa = scorecard.get("critical_field_accuracy", 1.0)
     baseline_far = scorecard.get("baseline_false_auto_approve_rate", 0.0)
 
     violations = []
@@ -166,8 +165,8 @@ def _check_gating_rules(scorecard: dict, version_id: str) -> None:
         violations.append(
             f"false_auto_approve_rate {far:.3f} > baseline {baseline_far:.3f} + {delta:.2f}"
         )
-    if sna < MIN_SUPPLIER_NAME_ACCURACY:
-        violations.append(f"supplier_name_accuracy {sna:.3f} < {MIN_SUPPLIER_NAME_ACCURACY}")
+    if cfa < MIN_CRITICAL_FIELD_ACCURACY:
+        violations.append(f"critical_field_accuracy {cfa:.3f} < {MIN_CRITICAL_FIELD_ACCURACY:.2f}")
 
     if violations:
         raise HTTPException(

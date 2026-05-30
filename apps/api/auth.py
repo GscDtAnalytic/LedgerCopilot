@@ -84,6 +84,7 @@ def get_optional_user(
 
 def require_roles(*roles: str):
     """Dependency factory: enforces that the current user holds one of the given roles."""
+
     def _check(
         creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     ) -> CurrentUser:
@@ -91,4 +92,5 @@ def require_roles(*roles: str):
         if user.role not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions.")
         return user
+
     return _check

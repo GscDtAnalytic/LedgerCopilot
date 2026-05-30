@@ -51,24 +51,33 @@ async def get_dashboard(
 ) -> DashboardResponse:
     org_filter = Case.organization_id == user.org_id if user else True
 
-    total = await session.scalar(
-        select(func.count(Case.id)).where(org_filter)  # type: ignore[arg-type]
-    ) or 0
+    total = (
+        await session.scalar(
+            select(func.count(Case.id)).where(org_filter)  # type: ignore[arg-type]
+        )
+        or 0
+    )
 
     week_ago = datetime.now(UTC) - timedelta(days=7)
-    cases_this_week = await session.scalar(
-        select(func.count(Case.id)).where(
-            org_filter,  # type: ignore[arg-type]
-            Case.created_at >= week_ago,
+    cases_this_week = (
+        await session.scalar(
+            select(func.count(Case.id)).where(
+                org_filter,  # type: ignore[arg-type]
+                Case.created_at >= week_ago,
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    pending_review = await session.scalar(
-        select(func.count(Case.id)).where(
-            org_filter,  # type: ignore[arg-type]
-            Case.status == "in_human_review",
+    pending_review = (
+        await session.scalar(
+            select(func.count(Case.id)).where(
+                org_filter,  # type: ignore[arg-type]
+                Case.status == "in_human_review",
+            )
         )
-    ) or 0
+        or 0
+    )
 
     # Decision breakdown
     decision_rows = await session.execute(
@@ -94,14 +103,10 @@ async def get_dashboard(
         .group_by(Case.status)
         .order_by(func.count(Case.id).desc())
     )
-    status_breakdown = [
-        StatusBreakdown(status=r.status, count=r.cnt) for r in status_rows
-    ]
+    status_breakdown = [StatusBreakdown(status=r.status, count=r.cnt) for r in status_rows]
 
     # Average confidence from latest extraction per case
-    avg_conf = await session.scalar(
-        select(func.avg(ExtractionResult.overall_confidence))
-    )
+    avg_conf = await session.scalar(select(func.avg(ExtractionResult.overall_confidence)))
 
     # Cost from model runs
     total_cost = await session.scalar(select(func.sum(ModelRun.cost_usd))) or 0.0

@@ -97,7 +97,7 @@ async def review_case(
         raise HTTPException(
             status_code=403,
             detail=f"Role '{user.role}' cannot perform action '{body.action}'. "
-                   f"Required: {list(allowed_roles)}.",
+            f"Required: {list(allowed_roles)}.",
         )
 
     target = _ACTION_TO_STATUS[body.action]
@@ -174,6 +174,28 @@ async def review_case(
         await session.flush()
 
     await session.commit()
+
+    # Prometheus: human review action completed.
+    try:
+        from packages.observability.metrics import human_reviews_completed_total
+
+        human_reviews_completed_total.labels(action=body.action, org_id=case.organization_id).inc()
+    except Exception:
+        pass
+
+    #: signal the durable Temporal HITL workflow that review was submitted.
+    # Done AFTER commit — DB state is source of truth; signal is additive for SLA tracking.
+    # Silently ignores errors (Temporal down, workflow already completed, etc.).
+    try:
+        from apps.api.temporal_client import signal_hitl_workflow
+
+        await signal_hitl_workflow(
+            case_id=case_id,
+            action=body.action,
+            reviewer_id=user.user_id,
+        )
+    except Exception as exc:
+        logger.debug("review.hitl_signal_skipped case_id=%s reason=%s", case_id, exc)
 
     # Re-enqueue pipeline when an edit sets case back to VALIDATED.
     # The pipeline is resumable from VALIDATED — it will run reconcile→policy→decide.

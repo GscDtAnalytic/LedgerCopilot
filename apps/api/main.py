@@ -15,7 +15,17 @@ from fastapi import FastAPI
 from apps.api.config import settings
 from apps.api.database import async_session_factory
 from apps.api.redis_pool import close_redis_pool, init_redis_pool
-from apps.api.routers import auth, cases, dashboard, documents, intake, monitoring, prompts, reviews
+from apps.api.routers import (
+    auth,
+    cases,
+    dashboard,
+    documents,
+    intake,
+    metrics_endpoint,
+    monitoring,
+    prompts,
+    reviews,
+)
 from apps.api.seed import ensure_default_org
 
 app = FastAPI(
@@ -32,6 +42,7 @@ app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(monitoring.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(intake.router, prefix="/api/v1")
+app.include_router(metrics_endpoint.router)  # /metrics — no prefix, Prometheus standard path
 
 
 @app.on_event("startup")

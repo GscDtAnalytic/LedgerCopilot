@@ -27,9 +27,7 @@ _DEMO_PASSWORD = "demo123"
 
 
 async def ensure_default_org(session: AsyncSession) -> None:
-    existing = await session.scalar(
-        select(Organization).where(Organization.id == DEFAULT_ORG_ID)
-    )
+    existing = await session.scalar(select(Organization).where(Organization.id == DEFAULT_ORG_ID))
     if existing is None:
         session.add(Organization(id=DEFAULT_ORG_ID, name="Default", slug=DEFAULT_ORG_SLUG))
         await session.commit()

@@ -5,29 +5,29 @@ then enqueues the pipeline job. A duplicate file hash within the same org return
 the existing case rather than processing again.
 
 Auth required: org_id is derived from the JWT, never hardcoded.
+Storage backend: storage is injected via get_storage(); local filesystem
+in dev, GCS/S3 in prod — no code change required at call sites.
 """
 
 from __future__ import annotations
 
 import hashlib
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from packages.domain.enums import ActorType
 from packages.domain.state_machine import CaseStatus
+from packages.storage.factory import get_storage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import CurrentUser, get_current_user
+from apps.api.config import settings
 from apps.api.database import get_session
 from apps.api.models import AuditEvent, Case, Document
 from apps.api.schemas.cases import DocumentUploadResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-
-# Local storage path for dev; in prod this becomes a GCS/S3 upload.
-_UPLOAD_DIR = Path("/tmp/ledgercopilot/uploads")
 
 
 @router.post("", response_model=DocumentUploadResponse, status_code=201)
@@ -62,11 +62,11 @@ async def upload_document(
                 status=existing_case.status,
             )
 
-    # Store file locally (prod: upload to GCS/S3 here).
-    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    # Store via the configured backend (local dev; GCS/S3 in prod via storage_backend setting).
+    # Bronze immutability: LocalBackend.put() is a no-op if the file already exists.
     stored_name = f"{file_hash[:8]}_{file.filename or 'document'}"
-    storage_path = str(_UPLOAD_DIR / stored_name)
-    Path(storage_path).write_bytes(content)
+    storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+    storage_path = storage.put(stored_name, content)
 
     # --- Create Document + Case + AuditEvent in one transaction ---
     trace_id = str(uuid.uuid4())
