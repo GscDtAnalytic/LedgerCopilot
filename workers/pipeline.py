@@ -42,7 +42,14 @@ from apps.api.models import (
     ValidationResult,
 )
 from apps.api.services.prompts import get_active_system_text
+from apps.api.services.reference import (
+    active_cost_center_codes,
+    lookup_payment_total,
+    lookup_po_total,
+    lookup_supplier,
+)
 from apps.api.services.tracing import persist_trace
+from arq import cron
 from packages.agents.extraction import run_extraction
 from packages.agents.intake import run_intake
 from packages.agents.review_assistant import ReviewSignals, build_explanation
@@ -55,9 +62,11 @@ from packages.ocr.engine import OcrResult, extract_text
 from packages.policy.engine import run_policy
 from packages.reconciliation.engine import ReconciliationContext, ReconciliationOutput, reconcile
 from packages.storage.factory import get_storage
-from packages.validation.engine import run_validations
+from packages.validation.engine import ValidationContext, run_validations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from workers.bucket_scan import scan_bucket
 
 logger = logging.getLogger(__name__)
 
@@ -395,7 +404,11 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
 
         if CaseStatus(case.status) == CaseStatus.EXTRACTED:
             _t3 = time.monotonic()
-            rules, has_block = run_validations(fields)
+            # Inject the org's active cost-center codes so "cost_center inválido" can
+            # actually block.
+            valid_ccs = await active_cost_center_codes(session, case.organization_id)
+            val_ctx = ValidationContext(valid_cost_centers=valid_ccs or None)
+            rules, has_block = run_validations(fields, val_ctx)
             failed_block_rules = [r.rule for r in rules if r.severity == "block" and not r.passed]
             validation = ValidationResult(
                 case_id=case.id,
@@ -461,13 +474,24 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 business_key_seen = dup is not None
                 duplicate_case_id = dup.id if dup is not None else None
 
-            # Context injected at the I/O boundary. PO/payment data comes from
-            # external systems (Phase 3); business_key_seen now set by
+            # Context injected at the I/O boundary: PO/payment totals,
+            # supplier blocklist from the reference tables; business_key_seen.
+            cnpj_val = fields.tax_id_cnpj.value if fields.tax_id_cnpj else None
+            docnum_val = fields.document_number.value if fields.document_number else None
+            supplier_info = await lookup_supplier(
+                session, case.organization_id, str(cnpj_val) if cnpj_val else None
+            )
+            po_total = await lookup_po_total(
+                session, case.organization_id, str(cnpj_val) if cnpj_val else None
+            )
+            payment_total = await lookup_payment_total(
+                session, case.organization_id, str(docnum_val) if docnum_val else None
+            )
             recon_ctx = ReconciliationContext(
-                po_total=None,
-                payment_total=None,
+                po_total=po_total,
+                payment_total=payment_total,
                 business_key_seen=business_key_seen,
-                supplier_blocklisted=False,
+                supplier_blocklisted=supplier_info.blocklisted,
             )
             recon_out = reconcile(fields, recon_ctx)
 
@@ -520,11 +544,21 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
 
         if CaseStatus(case.status) == CaseStatus.RECONCILED:
             _t5 = time.monotonic()
+            # Re-fetch reference data here so the policy stage is correct on the resume
+            # path too (e.g. after a human edit re-enters at VALIDATED, locals from the
+            # reconcile block above are not in scope).
+            p_cnpj = fields.tax_id_cnpj.value if fields.tax_id_cnpj else None
+            p_supplier = await lookup_supplier(
+                session, case.organization_id, str(p_cnpj) if p_cnpj else None
+            )
+            p_po_total = await lookup_po_total(
+                session, case.organization_id, str(p_cnpj) if p_cnpj else None
+            )
             policy_decisions, risk_score, requires_human = run_policy(
                 fields=fields,
                 has_blocking_failure=has_block,
-                supplier_registered=False,
-                po_total=None,
+                supplier_registered=p_supplier.registered,
+                po_total=p_po_total,
             )
             # Add reconciliation risk on top of policy risk.
             if recon_out:
@@ -550,6 +584,9 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                     "injection_suspected": injection_suspected,
                     "policy_version_id": _POLICY_VERSION_ID,
                     "recon_reject_reason": recon_out.reject_reason if recon_out else None,
+                    "requires_dual_approval": any(
+                        getattr(d, "requires_dual_approval", False) for d in policy_decisions
+                    ),
                     "policies": [
                         {"id": d.policy_id, "verdict": d.verdict, "req_human": d.requires_human}
                         for d in policy_decisions
@@ -570,6 +607,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                         risk_delta=pd.risk_delta,
                         reason=pd.reason,
                         policy_version_id=_POLICY_VERSION_ID,
+                        requires_dual_approval=getattr(pd, "requires_dual_approval", False),
                     )
                 )
             await session.commit()
@@ -696,8 +734,12 @@ class WorkerSettings:
     max_tries=3 means arq calls process_document up to 3 times on failure.
     On the 3rd failure process_document catches the exception and writes to dead_letters
     instead of re-raising, so arq marks the job as complete.
+
+    cron_jobs: scan_bucket runs every 5 minutes to ingest files dropped into storage
+    out-of-band.
     """
 
     functions: ClassVar[list[Callable[..., Any]]] = [process_document]
     redis_settings = settings.redis_url
     max_tries = _MAX_TRIES
+    cron_jobs: ClassVar[list[Any]] = [cron(scan_bucket, minute=set(range(0, 60, 5)))]
