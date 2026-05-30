@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.config import settings
 from apps.api.database import async_session_factory
@@ -32,6 +33,14 @@ app = FastAPI(
     title="LedgerCopilot API",
     version="0.1.0",
     description="AI operations platform for financial document workflows.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth.router, prefix="/api/v1")

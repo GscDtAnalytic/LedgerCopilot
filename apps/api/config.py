@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     active_prompt_alias: str = "dev"
     active_policy_alias: str = "dev"
 
+    # CORS: the web app (Next.js) runs on a different origin in dev and calls the API
+    # from the browser (client-side fetch in apps/web/src/lib/api.ts). Without these
+    # headers the browser blocks every cross-origin request — login included.
+    cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
     secret_key: str = "dev-secret-change-in-production-32chars"
 
     # Dual LLM / quarantine extraction.
