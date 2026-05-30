@@ -12,9 +12,12 @@ instance, or an exception with a clear message.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import time
+from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -30,6 +33,41 @@ _FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "claude-haiku-4-5-20251001
 
 # Lazily initialised — avoids import error when the SDK is not installed.
 _anthropic_client: Any = None
+
+# Optional concurrency cap on outbound model calls.
+# AI_MAX_CONCURRENCY=0 (default) means unlimited; a positive value bounds the number
+# of in-flight requests so a wide fan-out (e.g. eval SC k=3 over many fixtures) stays
+# under the provider's concurrent-connection rate limit. Created lazily inside the
+# running loop so it binds to the right event loop.
+_concurrency_sem: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore | None:
+    global _concurrency_sem
+    try:
+        limit = int(os.environ.get("AI_MAX_CONCURRENCY", "0"))
+    except ValueError:
+        return None
+    if limit <= 0:
+        return None
+    if _concurrency_sem is None:
+        _concurrency_sem = asyncio.Semaphore(limit)
+    return _concurrency_sem
+
+
+@contextlib.asynccontextmanager
+async def _gate() -> AsyncIterator[None]:
+    """Hold the concurrency semaphore around a single outbound call, if configured.
+
+    Scoped to just the HTTP call (not the fallback recursion) so a limit of 1 cannot
+    deadlock: the semaphore is released before any fallback gateway_call re-acquires.
+    """
+    sem = _get_semaphore()
+    if sem is None:
+        yield
+        return
+    async with sem:
+        yield
 
 
 def _get_client() -> Any:
@@ -92,13 +130,14 @@ async def gateway_call(
 
     start = time.monotonic()
     try:
-        message = await client.messages.create(
-            model=effective_model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system_text,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        async with _gate():
+            message = await client.messages.create(
+                model=effective_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_text,
+                messages=[{"role": "user", "content": user_message}],
+            )
         raw = message.content[0].text
         in_tok = message.usage.input_tokens
         out_tok = message.usage.output_tokens
