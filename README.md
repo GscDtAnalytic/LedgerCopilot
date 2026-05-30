@@ -14,7 +14,6 @@ like serious software.
 
 > Project guide for contributors and agents: **[``]** (authoritative).
 > AI-layer prompt design: **[``](./)**.
-> Technical backlog and known gaps: **[`RUNBOOK.md`](./RUNBOOK.md)**.
 
 ## Non-negotiable principles
 
@@ -35,7 +34,7 @@ workers/           arq jobs: the document processing pipeline
 packages/domain/   Pydantic entities + state machine + rules + decision logic (pure, no I/O)
 packages/validation/      deterministic validation engine (CNPJ check digits, date order, ...)
 packages/policy/          policy engine + versioning
-packages/reconciliation/  reconciliation engine
+packages/reconciliation/  reconciliation engine (deterministic stub)
 packages/agents/          Extraction agent + stub extractor
 packages/ai_gateway/      model abstraction, prompt registry, tracing, fallback, sanitization
 eval/              dataset with slices, metrics, scorecards, gating
@@ -84,7 +83,7 @@ or individually — see the [`Makefile`](./Makefile) and `` §5.
 | Phase | What | Status |
 |---|---|---|
 | **1 — Core MVP** | Upload, classification, extraction, validations, case detail, review queue, audit events | ✅ Complete |
-| **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ✅ · Reconciliation ✅ | ✅ Complete |
+| **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ✅ (`edited_fields` in body, re-enqueues from `VALIDATED`) · Reconciliation ✅ (pure `engine.py` + active deterministic `reject` branch) | ✅ Complete |
 | **3 — LLMOps layer** | Eval framework ✅, gate CLI ✅, scorecards ✅ · Prompt registry wired to runtime ✅ · Tracing captures tokens/latency/cost + redacted prompt/completion ✅ · Dataset: 1 fixture/slice (expand for statistical significance) | ✅ Complete |
 | **4 — Enterprise polish** | JWT auth ✅, RBAC enforced on all endpoints ✅, org-scoped queries ✅, dashboard ✅, audit export ✅ (approver+admin only) · **Ingestion channels**: upload ✅, email ✅, CSV/XLSX ✅, ERP/API ✅, bucket scan ✅ · **Reference data** (suppliers/POs/payments/cost centers) wired into policy + reconciliation ✅ | ✅ Complete |
 
@@ -104,8 +103,6 @@ or individually — see the [`Makefile`](./Makefile) and `` §5.
   supplier blocklist hard-reject — all against seeded reference data.
 - **HITL queue** (5 actions): approve, reject, edit, **request more context** (annotation, no
   status change), **resend to stage** (re-enters the resumable pipeline at `extracted`/`validated`).
-
-See [`RUNBOOK.md`](./RUNBOOK.md) for the full backlog, priorities, and acceptance criteria.
 
 ## Demo — JWT auth and RBAC
 
