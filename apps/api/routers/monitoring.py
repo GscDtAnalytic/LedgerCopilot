@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.auth import CurrentUser, get_current_user
 from apps.api.database import get_session
 from apps.api.models.case import Case
 from apps.api.models.model_run import ModelRun
@@ -38,8 +39,15 @@ class MonitoringResponse(BaseModel):
 
 
 @router.get("", response_model=MonitoringResponse)
-async def get_monitoring(session: AsyncSession = Depends(get_session)) -> MonitoringResponse:
-    """Aggregate cost, latency and throughput from model_runs and cases."""
+async def get_monitoring(
+    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> MonitoringResponse:
+    """Aggregate cost, latency and throughput from model_runs and cases.
+
+    Auth required (LLMOps metrics are operational data, not public). Aggregates are
+    org-wide for now — per-org scoping needs an org_id link on model_runs (future).
+    """
     # Stage-level aggregates
     stage_rows = await session.execute(
         select(

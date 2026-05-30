@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.auth import CurrentUser, get_optional_user
+from apps.api.auth import CurrentUser, get_current_user
 from apps.api.database import get_session
 from apps.api.models.case import Case
 from apps.api.models.extraction import ExtractionResult
@@ -47,13 +47,15 @@ class DashboardResponse(BaseModel):
 @router.get("", response_model=DashboardResponse)
 async def get_dashboard(
     session: AsyncSession = Depends(get_session),
-    user: CurrentUser | None = Depends(get_optional_user),
+    user: CurrentUser = Depends(get_current_user),
 ) -> DashboardResponse:
-    org_filter = Case.organization_id == user.org_id if user else True
+    # Always org-scoped: executive financials must require auth and never leak
+    # across orgs (previously get_optional_user allowed an unauthenticated, org-wide read).
+    org_filter = Case.organization_id == user.org_id
 
     total = (
         await session.scalar(
-            select(func.count(Case.id)).where(org_filter)  # type: ignore[arg-type]
+            select(func.count(Case.id)).where(org_filter)
         )
         or 0
     )
@@ -62,7 +64,7 @@ async def get_dashboard(
     cases_this_week = (
         await session.scalar(
             select(func.count(Case.id)).where(
-                org_filter,  # type: ignore[arg-type]
+                org_filter,
                 Case.created_at >= week_ago,
             )
         )
@@ -72,7 +74,7 @@ async def get_dashboard(
     pending_review = (
         await session.scalar(
             select(func.count(Case.id)).where(
-                org_filter,  # type: ignore[arg-type]
+                org_filter,
                 Case.status == "in_human_review",
             )
         )
@@ -82,7 +84,7 @@ async def get_dashboard(
     # Decision breakdown
     decision_rows = await session.execute(
         select(Case.decision, func.count(Case.id).label("cnt"))
-        .where(org_filter)  # type: ignore[arg-type]
+        .where(org_filter)
         .group_by(Case.decision)
         .order_by(func.count(Case.id).desc())
     )
@@ -99,7 +101,7 @@ async def get_dashboard(
     # Status breakdown
     status_rows = await session.execute(
         select(Case.status, func.count(Case.id).label("cnt"))
-        .where(org_filter)  # type: ignore[arg-type]
+        .where(org_filter)
         .group_by(Case.status)
         .order_by(func.count(Case.id).desc())
     )
