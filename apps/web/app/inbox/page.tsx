@@ -7,6 +7,7 @@
  */
 
 import Link from "next/link";
+import type { Route } from "next";
 import { api, type CasesListResponse } from "@/lib/api";
 import { SLABadge } from "@/components/SLABadge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -59,13 +60,13 @@ export default async function InboxPage({ searchParams }: PageProps) {
 
   const needsReviewCount = data.items.filter((c) => c.status === "in_human_review").length;
 
-  function filterHref(key: string, val: string) {
+  function filterHref(key: string, val: string): Route {
     const p = new URLSearchParams();
     if (key !== "status" && statusFilter) p.set("status", statusFilter);
     if (key !== "type" && typeFilter) p.set("type", typeFilter);
     if (val) p.set(key, val);
     const qs = p.toString();
-    return `/inbox${qs ? `?${qs}` : ""}`;
+    return `/inbox${qs ? `?${qs}` : ""}` as Route;
   }
 
   return (
