@@ -29,6 +29,8 @@ const FIELD_LABELS: Record<string, string> = {
   issue_date: "Issue date",
   due_date: "Due date",
   document_number: "Document #",
+  cost_center: "Cost center",
+  category: "Category",
 };
 
 function FieldRow({ name, fv }: { name: string; fv: FieldValue }) {
@@ -54,8 +56,12 @@ export default async function CaseDetailPage({ params }: Props) {
   if (!caseData) notFound();
 
   const { label: decisionLabel, color: decisionColor } = decisionMeta(caseData.decision);
+  const items = caseData.extraction?.items ?? [];
+  // Scalar fields only — `items` is rendered separately as a table below.
   const extractionEntries = caseData.extraction
-    ? Object.entries(caseData.extraction).filter(([, v]) => v !== null && v !== undefined)
+    ? Object.entries(caseData.extraction).filter(
+        ([k, v]) => k !== "items" && v !== null && v !== undefined,
+      )
     : [];
 
   return (
@@ -100,6 +106,14 @@ export default async function CaseDetailPage({ params }: Props) {
             {caseData.reason_code && (
               <p className="mt-1 font-mono text-xs text-muted">{caseData.reason_code}</p>
             )}
+            {caseData.requires_dual_approval && (
+              <p
+                className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning"
+                role="note"
+              >
+                <span aria-hidden="true">⚠</span> Urgent payment — second approver required
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -128,6 +142,40 @@ export default async function CaseDetailPage({ params }: Props) {
               <p className="text-sm text-muted">No extraction results yet.</p>
             )}
           </section>
+
+          {/* Line items */}
+          {items.length > 0 && (
+            <section aria-labelledby="items-heading">
+              <h2 id="items-heading" className="mb-4 text-sm font-semibold uppercase tracking-wider">
+                Line items
+                <span className="ml-2 font-normal normal-case text-muted">· {items.length}</span>
+              </h2>
+              <div className="overflow-hidden rounded-lg border border-border bg-surface">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted">
+                      <th className="px-4 py-2 font-medium">Description</th>
+                      <th className="px-4 py-2 text-right font-medium">Qty</th>
+                      <th className="px-4 py-2 text-right font-medium">Unit</th>
+                      <th className="px-4 py-2 text-right font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it, i) => (
+                      <tr key={i} className="border-b border-border last:border-0">
+                        <td className="px-4 py-2">{it.description ?? "—"}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{it.quantity ?? "—"}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{it.unit_price ?? "—"}</td>
+                        <td className="px-4 py-2 text-right font-medium tabular-nums">
+                          {it.line_total ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           {/* Validation rules */}
           {caseData.validations.length > 0 && (

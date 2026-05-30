@@ -23,14 +23,23 @@ export function ReviewActions({ caseId }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(action: "approve" | "reject" | "edit", note?: string) {
+  async function submit(
+    action: "approve" | "reject" | "edit" | "request_context" | "resend_to_stage",
+    note?: string,
+    extra?: Record<string, unknown>,
+  ) {
     setLoading(action);
     setError(null);
     try {
       const res = await fetch(`${BASE}/api/v1/cases/${caseId}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, note: note ?? null, reviewer_id: "web-analyst" }),
+        body: JSON.stringify({
+          action,
+          note: note ?? null,
+          reviewer_id: "web-analyst",
+          ...extra,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -83,6 +92,30 @@ export function ReviewActions({ caseId }: Props) {
         className="w-full rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors duration-fast ease-standard hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading === "edit" ? "Sending back…" : "Send back for edit"}
+      </button>
+
+      <button
+        onClick={() => {
+          const note = window.prompt("What additional context do you need?");
+          if (note) void submit("request_context", note);
+        }}
+        disabled={loading !== null}
+        aria-busy={loading === "request_context"}
+        className="w-full rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors duration-fast ease-standard hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading === "request_context" ? "Requesting…" : "Request more context"}
+      </button>
+
+      <button
+        onClick={() => {
+          const note = window.prompt("Resend to re-validation. Note (optional):");
+          void submit("resend_to_stage", note ?? undefined, { target_stage: "validated" });
+        }}
+        disabled={loading !== null}
+        aria-busy={loading === "resend_to_stage"}
+        className="w-full rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors duration-fast ease-standard hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading === "resend_to_stage" ? "Resending…" : "Resend to re-validate"}
       </button>
     </div>
   );

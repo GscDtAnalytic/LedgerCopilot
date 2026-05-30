@@ -22,6 +22,7 @@ from apps.api.models import (
     DeadLetter,
     Document,
     ExtractionResult,
+    PolicyDecision,
     ValidationResult,
 )
 from apps.api.schemas.cases import (
@@ -109,6 +110,16 @@ async def get_case(
         .limit(1)
     )
 
+    # Does any policy on this case demand a second approver? (urgent payment, §9)
+    dual_approval = await session.scalar(
+        select(PolicyDecision.id)
+        .where(
+            PolicyDecision.case_id == case_id,
+            PolicyDecision.requires_dual_approval.is_(True),
+        )
+        .limit(1)
+    )
+
     return CaseDetail(
         id=case.id,
         status=case.status,
@@ -129,6 +140,7 @@ async def get_case(
         overall_confidence=extraction.overall_confidence if extraction else None,
         validations=[ValidationRule(**r) for r in validation.rules_json] if validation else [],
         has_blocking_failure=validation.has_blocking_failure if validation else False,
+        requires_dual_approval=dual_approval is not None,
     )
 
 

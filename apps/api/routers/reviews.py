@@ -46,6 +46,14 @@ _ACTION_ROLES: dict[str, tuple[str, ...]] = {
     "approve": ("approver", "admin"),
     "reject": ("approver", "admin"),
     "edit": ("analyst", "approver", "admin"),
+    "request_context": ("analyst", "approver", "admin"),
+    "resend_to_stage": ("analyst", "approver", "admin"),
+}
+
+# Stages a reviewer may resend a case back to (resend_to_stage action).
+_RESEND_TARGETS: dict[str, CaseStatus] = {
+    "extracted": CaseStatus.EXTRACTED,
+    "validated": CaseStatus.VALIDATED,
 }
 
 _TERMINAL_AFTER: dict[CaseStatus, CaseStatus | None] = {
@@ -53,6 +61,16 @@ _TERMINAL_AFTER: dict[CaseStatus, CaseStatus | None] = {
     CaseStatus.REJECTED: CaseStatus.CLOSED,
     CaseStatus.EDITED: CaseStatus.VALIDATED,  # re-enters pipeline at VALIDATED
 }
+
+
+async def _reenqueue(case_id: str) -> None:
+    """Re-enqueue the resumable pipeline on the shared pool (best-effort)."""
+    try:
+        from apps.api.redis_pool import get_redis_pool
+
+        await get_redis_pool().enqueue_job("process_document", case_id)
+    except Exception:
+        logger.warning("review.reenqueue_failed case_id=%s — manual reprocess needed", case_id)
 
 
 def _build_edited_extraction(
@@ -85,10 +103,10 @@ async def review_case(
     if case is None or case.organization_id != user.org_id:
         raise HTTPException(status_code=404, detail="Case not found.")
 
-    if body.action not in _ACTION_TO_STATUS:
+    if body.action not in _ACTION_ROLES:
         raise HTTPException(
             status_code=422,
-            detail=f"action must be one of: {list(_ACTION_TO_STATUS)}",
+            detail=f"action must be one of: {list(_ACTION_ROLES)}",
         )
 
     # RBAC check per action.
@@ -98,6 +116,80 @@ async def review_case(
             status_code=403,
             detail=f"Role '{user.role}' cannot perform action '{body.action}'. "
             f"Required: {list(allowed_roles)}.",
+        )
+
+    # ── request_context: annotation only — no status change ──
+    # A reviewer asks for more information. The case stays in review; we record the
+    # request as a HumanReview + AuditEvent so the trail shows why it stalled.
+    if body.action == "request_context":
+        if CaseStatus(case.status) != CaseStatus.IN_HUMAN_REVIEW:
+            raise HTTPException(
+                status_code=409,
+                detail="request_context is only valid while the case is in human review.",
+            )
+        session.add(
+            HumanReview(
+                case_id=case.id, reviewer_id=user.user_id, action="request_context", note=body.note
+            )
+        )
+        session.add(
+            AuditEvent(
+                case_id=case.id,
+                organization_id=case.organization_id,
+                actor_type=ActorType.HUMAN,
+                actor_id=user.user_id,
+                from_status=case.status,
+                to_status=case.status,  # no transition — annotation event
+                trace_id=case.trace_id,
+                payload={"action": "request_context", "note": body.note or ""},
+            )
+        )
+        await session.commit()
+        return ReviewResponse(case_id=case.id, new_status=case.status, action=body.action)
+
+    # ── resend_to_stage: send back to an earlier deterministic stage + reprocess ──
+    if body.action == "resend_to_stage":
+        target_key = (body.target_stage or "").strip().lower()
+        if target_key not in _RESEND_TARGETS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"target_stage must be one of: {list(_RESEND_TARGETS)}",
+            )
+        resend_target = _RESEND_TARGETS[target_key]
+        try:
+            assert_transition(CaseStatus(case.status), resend_target)
+        except InvalidTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        session.add(
+            HumanReview(
+                case_id=case.id, reviewer_id=user.user_id, action="resend_to_stage", note=body.note
+            )
+        )
+        session.add(
+            AuditEvent(
+                case_id=case.id,
+                organization_id=case.organization_id,
+                actor_type=ActorType.HUMAN,
+                actor_id=user.user_id,
+                from_status=case.status,
+                to_status=resend_target,
+                trace_id=case.trace_id,
+                payload={
+                    "action": "resend_to_stage",
+                    "target_stage": target_key,
+                    "note": body.note or "",
+                },
+            )
+        )
+        case.status = resend_target
+        await session.commit()
+        await _reenqueue(case.id)
+        return ReviewResponse(case_id=case.id, new_status=case.status, action=body.action)
+
+    if body.action not in _ACTION_TO_STATUS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"action must be one of: {list(_ACTION_TO_STATUS)}",
         )
 
     target = _ACTION_TO_STATUS[body.action]
@@ -200,19 +292,7 @@ async def review_case(
     # Re-enqueue pipeline when an edit sets case back to VALIDATED.
     # The pipeline is resumable from VALIDATED — it will run reconcile→policy→decide.
     if target == CaseStatus.EDITED:
-        try:
-            from arq import create_pool
-            from arq.connections import RedisSettings
-
-            from apps.api.config import settings
-
-            pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-            await pool.enqueue_job("process_document", case.id)
-            await pool.aclose()
-        except Exception:
-            logger.warning(
-                "could not re-enqueue case %s after edit — manual reprocess needed", case_id
-            )
+        await _reenqueue(case.id)
 
     return ReviewResponse(
         case_id=case.id,

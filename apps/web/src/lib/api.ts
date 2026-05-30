@@ -22,6 +22,14 @@ export interface FieldValue {
   source: string;
 }
 
+export interface LineItem {
+  description: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  line_total: number | null;
+  confidence: number;
+}
+
 export interface ExtractionFields {
   supplier_name?: FieldValue;
   tax_id_cnpj?: FieldValue;
@@ -30,6 +38,9 @@ export interface ExtractionFields {
   issue_date?: FieldValue;
   due_date?: FieldValue;
   document_number?: FieldValue;
+  cost_center?: FieldValue;
+  category?: FieldValue;
+  items?: LineItem[];
 }
 
 export interface ValidationRule {
@@ -59,6 +70,7 @@ export interface CaseDetail {
   overall_confidence: number | null;
   validations: ValidationRule[];
   has_blocking_failure: boolean;
+  requires_dual_approval: boolean;
 }
 
 export interface AuditEvent {

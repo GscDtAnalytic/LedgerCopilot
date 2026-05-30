@@ -21,6 +21,14 @@ class FieldValue(BaseModel):
     source: str = "ocr"
 
 
+class LineItem(BaseModel):
+    description: str | None = None
+    quantity: float | None = None
+    unit_price: float | None = None
+    line_total: float | None = None
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+
+
 class ExtractionFields(BaseModel):
     supplier_name: FieldValue | None = None
     tax_id_cnpj: FieldValue | None = None
@@ -29,6 +37,9 @@ class ExtractionFields(BaseModel):
     issue_date: FieldValue | None = None
     due_date: FieldValue | None = None
     document_number: FieldValue | None = None
+    cost_center: FieldValue | None = None
+    category: FieldValue | None = None
+    items: list[LineItem] = Field(default_factory=list)
 
 
 class ValidationRule(BaseModel):
@@ -68,6 +79,8 @@ class CaseDetail(BaseModel):
     overall_confidence: float | None = None
     validations: list[ValidationRule] = Field(default_factory=list)
     has_blocking_failure: bool = False
+    # True when a policy flagged this case as needing a second approver.
+    requires_dual_approval: bool = False
 
 
 class AuditEventOut(BaseModel):
@@ -96,12 +109,14 @@ class CasesListResponse(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    action: str  # approve | reject | edit
+    action: str  # approve | reject | edit | request_context | resend_to_stage
     note: str | None = None
     # edited_fields: only required when action == "edit".
     # Keys are ExtractionOutput field names; values follow FieldValue schema.
     # Human-supplied values are trusted (confidence=1.0, source="human").
     edited_fields: dict[str, Any] | None = None
+    # target_stage: required when action == "resend_to_stage" (extracted | validated).
+    target_stage: str | None = None
 
 
 class ReviewResponse(BaseModel):

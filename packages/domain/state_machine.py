@@ -48,8 +48,17 @@ ALLOWED_TRANSITIONS: dict[CaseStatus, frozenset[CaseStatus]] = {
         {CaseStatus.AUTO_APPROVED, CaseStatus.REJECTED, CaseStatus.IN_HUMAN_REVIEW}
     ),
     CaseStatus.AUTO_APPROVED: frozenset({CaseStatus.CLOSED}),
+    # A reviewer can resend a case to an earlier stage (resend_to_stage action);
+    # the resumable pipeline re-runs from there. EXTRACTED/VALIDATED are the only
+    # safe re-entry points (deterministic stages, no lost human work).
     CaseStatus.IN_HUMAN_REVIEW: frozenset(
-        {CaseStatus.APPROVED, CaseStatus.REJECTED, CaseStatus.EDITED}
+        {
+            CaseStatus.APPROVED,
+            CaseStatus.REJECTED,
+            CaseStatus.EDITED,
+            CaseStatus.EXTRACTED,
+            CaseStatus.VALIDATED,
+        }
     ),
     CaseStatus.APPROVED: frozenset({CaseStatus.CLOSED}),
     # An edited case re-enters the deterministic pipeline at validation.
