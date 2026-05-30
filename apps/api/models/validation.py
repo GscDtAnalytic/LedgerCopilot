@@ -1,8 +1,7 @@
-"""ValidationResult — output of the deterministic validation engine.
+"""ValidationResult — deterministic rule engine output. No LLM involved.
 
-Validation never uses LLM. Each rule is a pure function
-that returns passed/failed and a severity. A block-severity failure prevents
-auto_approve regardless of confidence.
+Each rule is a pure function returning passed/failed and a severity.
+A block-severity failure prevents auto_approve regardless of confidence.
 """
 
 from __future__ import annotations

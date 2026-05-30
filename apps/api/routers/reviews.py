@@ -1,15 +1,14 @@
 """POST /api/v1/cases/{id}/review — human reviewer actions.
 
-Supports three actions:
+Supported actions:
   - approve → IN_HUMAN_REVIEW → APPROVED → CLOSED       (approver, admin)
   - reject  → IN_HUMAN_REVIEW → REJECTED → CLOSED       (approver, admin)
   - edit    → IN_HUMAN_REVIEW → EDITED → EXTRACTED      (analyst, approver, admin)
-              edited_fields saved as new ExtractionResult (source=human)
-              pipeline re-enqueued from VALIDATED
+              edited_fields saved as a new ExtractionResult (source=human)
+              pipeline re-enqueued so validation re-runs on the corrected fields
 
-Auth required: actor_id derived from JWT; org check on every case access.
-RBAC enforced per action: approve/reject require approver or admin.
-Every action writes HumanReview + AuditEvent in the same DB transaction.
+actor_id is derived from the JWT. RBAC is enforced per action.
+Every action writes HumanReview + AuditEvent atomically in the same DB transaction.
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ _RESEND_TARGETS: dict[str, CaseStatus] = {
 _TERMINAL_AFTER: dict[CaseStatus, CaseStatus | None] = {
     CaseStatus.APPROVED: CaseStatus.CLOSED,
     CaseStatus.REJECTED: CaseStatus.CLOSED,
-    # re-enters at EXTRACTED so validation re-runs on the edit
+    # re-enters at EXTRACTED so validation re-runs on the corrected fields
     CaseStatus.EDITED: CaseStatus.EXTRACTED,
 }
 
@@ -276,7 +275,7 @@ async def review_case(
     except Exception:
         pass
 
-    #: signal the durable Temporal HITL workflow that review was submitted.
+    # Signal the durable Temporal HITL workflow that review was submitted.
     # Done AFTER commit — DB state is source of truth; signal is additive for SLA tracking.
     # Silently ignores errors (Temporal down, workflow already completed, etc.).
     try:
@@ -290,10 +289,9 @@ async def review_case(
     except Exception as exc:
         logger.debug("review.hitl_signal_skipped case_id=%s reason=%s", case_id, exc)
 
-    # Re-enqueue pipeline when an edit sets case back to EXTRACTED.
-    # The pipeline is resumable from EXTRACTED — it re-runs validate→reconcile→
-    # policy→decide on the corrected fields, so the human edit can clear a prior
-    # blocking validation (it could not when re-entry was at VALIDATED, #3).
+    # Re-enqueue pipeline when an edit sets the case back to EXTRACTED.
+    # The pipeline resumes from EXTRACTED, re-running validate→reconcile→policy→decide
+    # on the corrected fields so a human edit can clear a prior blocking failure.
     if target == CaseStatus.EDITED:
         await _reenqueue(case.id)
 

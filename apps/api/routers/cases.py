@@ -1,7 +1,7 @@
-"""GET /api/v1/cases — inbox, case detail, audit trail, and audit-export (Phase 4).
+"""GET /api/v1/cases — inbox, case detail, audit trail, and audit-export.
 
-Auth required: all queries scoped to user.org_id — no cross-tenant reads.
-audit-export is gated to approver and admin roles.
+All queries scoped to user.org_id — no cross-tenant reads.
+Audit-export is gated to approver and admin roles.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ async def get_case(
         .limit(1)
     )
 
-    # Does any policy on this case demand a second approver? (urgent payment, §9)
+    # Does any policy on this case demand a second approver? (urgent payment)
     dual_approval = await session.scalar(
         select(PolicyDecision.id)
         .where(
@@ -184,7 +184,7 @@ async def get_case_narrative(
     session: AsyncSession = Depends(get_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NarrativeResponse:
-    """Audit Narrator (Agent 7): a plain-language summary of why the decision happened,
+    """Audit Narrator: a plain-language summary of why the decision happened,
     derived purely from the immutable audit-event stream.
     """
     case = await session.get(Case, case_id)
@@ -215,7 +215,7 @@ async def export_audit_package(
     session: AsyncSession = Depends(get_session),
     user: CurrentUser = Depends(require_roles("approver", "admin")),
 ) -> Response:
-    """Download the full audit package (JSON). Gated to approver and admin."""
+    """Download the full audit package (JSON). Gated to approver and admin roles."""
     case = await session.get(Case, case_id)
     if case is None or case.organization_id != user.org_id:
         raise HTTPException(status_code=404, detail="Case not found.")

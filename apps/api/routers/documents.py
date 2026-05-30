@@ -2,11 +2,10 @@
 
 Creates Document + Case (RECEIVED) + first AuditEvent in a single transaction,
 then enqueues the pipeline job. A duplicate file hash within the same org returns
-the existing case rather than processing again.
+the existing case without reprocessing (content-based dedup).
 
-Auth required: org_id is derived from the JWT, never hardcoded.
-Storage backend: storage is injected via get_storage(); local filesystem
-in dev, GCS/S3 in prod — no code change required at call sites.
+org_id is derived from the JWT — never hardcoded. Storage is injected via
+get_storage(); local filesystem in dev, GCS/S3 in prod, no code change at call sites.
 """
 
 from __future__ import annotations
@@ -106,7 +105,7 @@ async def upload_document(
     session.add(audit)
     await session.commit()
 
-    # Enqueue pipeline job via the shared pool.
+    # Enqueue pipeline job via the shared pool — no per-request pool creation.
     try:
         from apps.api.redis_pool import get_redis_pool
 

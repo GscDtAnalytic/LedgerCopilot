@@ -3,7 +3,7 @@
  *
  * Server Component: fetches data at render time.
  * Layout: KPI cards → decision breakdown (inline bar chart) → status table.
- * Data-ink principle: bars, not pies; every value has a unit;
+ * Data-ink: bars, not pies; every value has a unit;
  * color carries meaning (success/warning/danger tokens from design system).
  */
 

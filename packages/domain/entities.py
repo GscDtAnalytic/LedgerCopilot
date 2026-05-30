@@ -1,7 +1,6 @@
 """Pydantic entities for AI-layer contracts (pure, validated, no ORM).
 
-LLM output is ALWAYS validated by one of these models before being used anywhere.
-Never consume raw JSON from the model.
+LLM output is always validated by one of these models before use — never raw JSON.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ class ExtractionOutput(BaseModel):
     issue_date: FieldValue | None = None
     due_date: FieldValue | None = None
     document_number: FieldValue | None = None
-    # Line items: drive the "sum of items != total" validation.
+    # Line items: drive the "sum of items != total" validation rule.
     items: list[LineItem] = Field(default_factory=list)
     # Accounting dimensions: drive cost-center validation and category policy.
     cost_center: FieldValue | None = None
@@ -50,7 +49,7 @@ class ExtractionOutput(BaseModel):
 
     def critical_fields(self) -> list[FieldValue | None]:
         # items/cost_center/category are intentionally NOT critical: they must not
-        # affect overall_confidence() or the gate.
+        # affect overall_confidence() or the promotion gate.
         return [self.total_amount, self.tax_id_cnpj, self.document_number]
 
     def overall_confidence(self) -> float:

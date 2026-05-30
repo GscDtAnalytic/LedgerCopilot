@@ -1,4 +1,4 @@
-"""Bucket-scan ingestion channel.
+"""Bucket-scan ingestion channel — polls storage and ingests new files as cases.
 
 Periodically lists the storage backend and ingests files that do not yet have a
 Document row. Files written by the other channels already have a Document (keyed by

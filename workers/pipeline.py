@@ -6,16 +6,15 @@ Macro flow:
   1. RECEIVED → CLASSIFIED  (classify document type from filename/content)
   2. CLASSIFIED → EXTRACTED  (ai_gateway + Self-Consistency k=3; doc sanitised first)
   3. EXTRACTED → VALIDATED   (deterministic rules, no LLM)
-  4. VALIDATED → RECONCILED  (simple totals check — Phase 2 placeholder)
+  4. VALIDATED → RECONCILED  (totals check, dedup, blocklist)
   5. RECONCILED → POLICY_EVALUATED  (versioned policy engine)
   6. POLICY_EVALUATED → DECIDED     (Tree-of-Thoughts; uses domain.decisions.decide)
   7. DECIDED → AUTO_APPROVED | IN_HUMAN_REVIEW | REJECTED
 
-Resumable pipeline:
-  Each stage only runs when case.status == its precondition. If the pipeline is
-  re-invoked on a case that already passed a stage (e.g. after an edit sets status
-  back to VALIDATED), it skips the earlier stages and resumes from the right point,
-  loading intermediate results from the DB as needed.
+Resumable: each stage only runs when case.status == its precondition. If the
+pipeline is re-invoked on a case that already passed a stage (e.g. after an edit
+sets status back to EXTRACTED), it skips earlier stages and resumes from the right
+point, loading intermediate results from the DB as needed.
 
 INVARIANT: Every state transition calls `_transition()` which writes the
 AuditEvent in the SAME transaction as the Case.status update.
@@ -143,8 +142,8 @@ async def _transition(
 ) -> None:
     """Validate + apply a state transition, writing audit_event atomically.
 
-    policy_version_id is now passed explicitly — previously it was
-    derived from prompt_version_id which caused it to be null on POLICY_EVALUATED.
+    policy_version_id is passed explicitly — deriving it from prompt_version_id
+    caused it to be null on POLICY_EVALUATED transitions.
     """
     assert_transition(CaseStatus(case.status), target)
 
@@ -202,9 +201,9 @@ async def process_document(ctx: dict[str, Any], case_id: str) -> None:
     a stage (e.g. VALIDATED after a human edit) will skip earlier stages and load
     intermediate data from the DB instead.
 
-    DLQ: on the final retry attempt (job_try == _MAX_TRIES) an unhandled
-    exception is caught here, written to dead_letters + audit_event, and NOT re-raised
-    so arq marks the job as complete. Earlier failures are re-raised so arq retries.
+    DLQ: on the final retry attempt (job_try == _MAX_TRIES) an unhandled exception
+    is written to dead_letters + audit_event and NOT re-raised so arq marks the job
+    complete. Earlier failures are re-raised so arq retries.
     """
     job_try: int = ctx.get("job_try", 1)
     logger.info("pipeline.start case_id=%s try=%d/%d", case_id, job_try, _MAX_TRIES)
@@ -253,11 +252,11 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             logger.error("document not found for case: %s", case_id)
             return
 
-        #: read bytes via storage backend (local dev; GCS/S3 in prod).
+        # Read raw bytes via storage backend (local dev; GCS/S3 in prod).
         storage = get_storage(settings.storage_backend, settings.storage_local_dir)
         content = storage.get(doc.storage_path)
 
-        #: extract text with OCR if needed; annotate Document with provenance.
+        # Extract text with OCR if needed; annotate Document with provenance.
         ocr_result: OcrResult = extract_text(content, doc.content_type)
         doc_text = ocr_result.text
         if doc.ocr_source is None:
@@ -267,7 +266,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         for w in ocr_result.warnings:
             logger.warning("ocr warning case_id=%s: %s", case_id, w)
 
-        # Resolve the active production prompt from DB.
+        # Resolve the active prompt from DB (falls back to in-process registry).
         # Falls back to None → ai_gateway uses its in-process registry.
         system_override = await get_active_system_text("production", session)
 
@@ -323,7 +322,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 quarantine_model=settings.quarantine_model if settings.dual_llm_enabled else None,
             )
 
-            #: cap field confidences by OCR quality.
+            # Cap field confidences by OCR quality when OCR was used.
             # Wiki: "confiança por campo derivada do OCR + modelo" — the LLM cannot
             # produce better confidence than the quality of the text it received.
             if ocr_result.is_low_quality:
@@ -391,7 +390,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             logger.error("no extraction result for case %s — aborting", case_id)
             return
 
-        # Business-key: compute once after extraction, save to case.
+        # Compute business key once after extraction and save to case.
         # Idempotent: if already set (resume path), keep existing value.
         if not case.business_key:
             bk = compute_business_key(fields)
@@ -406,7 +405,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         if CaseStatus(case.status) == CaseStatus.EXTRACTED:
             _t3 = time.monotonic()
             # Inject the org's active cost-center codes so "cost_center inválido" can
-            # actually block.
+            # Actual blocking decided by policy (reference data fetched at the I/O boundary).
             valid_ccs = await active_cost_center_codes(session, case.organization_id)
             val_ctx = ValidationContext(valid_cost_centers=valid_ccs or None)
             rules, has_block = run_validations(fields, val_ctx)
@@ -476,7 +475,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 duplicate_case_id = dup.id if dup is not None else None
 
             # Context injected at the I/O boundary: PO/payment totals,
-            # supplier blocklist from the reference tables; business_key_seen.
+            # supplier blocklist from the reference tables, and business_key_seen.
             cnpj_val = fields.tax_id_cnpj.value if fields.tax_id_cnpj else None
             docnum_val = fields.document_number.value if fields.document_number else None
             supplier_info = await lookup_supplier(
@@ -593,8 +592,8 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                         for d in policy_decisions
                     ],
                 },
-                # policy_version_id passed explicitly ( — was deriving from
-                # prompt_version_id which left the column null on this transition).
+                # policy_version_id passed explicitly — was previously derived from
+                # prompt_version_id, which left the column null on POLICY_EVALUATED transitions.
                 policy_version_id=_POLICY_VERSION_ID,
             )
             # Materialise each policy result as a queryable row.
@@ -620,7 +619,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         # ── S6: DECIDE ────────────────────────────────────────────────────────
         if CaseStatus(case.status) == CaseStatus.POLICY_EVALUATED:
             recon_reject_reason = recon_out.reject_reason if recon_out else None
-            # Use the shared domain function.
+            # Use the shared domain function (eval/runner.py uses the same path to stay consistent).
             decision, reason_code, branches, _decide_just = decide(
                 fields,
                 has_block,
@@ -705,7 +704,7 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                     decision=terminal_status.value, org_id=case.organization_id
                 ).inc()
 
-            #: start durable Temporal HITL workflow when case needs human review.
+            # Start durable Temporal HITL workflow when case needs human review.
             # Temporal tracks the wait durably and fires the SLA timer; the arq pipeline
             # is done at this point — it does not re-run until the reviewer edits the case.
             if terminal_status == CaseStatus.IN_HUMAN_REVIEW:
@@ -737,7 +736,7 @@ class WorkerSettings:
     instead of re-raising, so arq marks the job as complete.
 
     cron_jobs: scan_bucket runs every 5 minutes to ingest files dropped into storage
-    out-of-band.
+    out-of-band via the "bucket" channel.
     """
 
     functions: ClassVar[list[Callable[..., Any]]] = [process_document]

@@ -1,14 +1,11 @@
 /**
- * Design tokens — the single source of truth for the LedgerCopilot UI
- *.
+ * Design tokens — the single source of truth for the LedgerCopilot UI.
  *
- * Components consume these tokens (via the CSS variables declared in
- * `app/globals.css` and surfaced through Tailwind theme keys), never raw values.
- * The token set is versioned like a prompt/policy: changing it is a deliberate,
- * reviewable act.
+ * Components consume these tokens via the CSS variables in `app/globals.css`
+ * and Tailwind theme keys — never raw values.
  *
- * Naming is *semantic* (what a value means), not literal (what color it is), so
- * theming (light/dark, high-contrast) is a matter of remapping variables.
+ * Naming is semantic (what a value means, not what color it is) so theming
+ * (light/dark, high-contrast) is a matter of remapping CSS variables.
  */
 
 export const motion = {
@@ -34,9 +31,9 @@ export const radius = {
 } as const;
 
 /**
- * Haptic / feedback "language" shared across visual, optional sound and touch
- *. A success feels different from an attention from an error,
- * consistently, wherever the device supports the Vibration API.
+ * Haptic / feedback "language" shared across visual, optional sound and touch.
+ * Success, attention, and error have distinct patterns wherever the Vibration API
+ * is supported — consistent across visual, audio, and tactile channels.
  */
 export const feedback = {
   success: { tone: "success", vibrate: [12] },

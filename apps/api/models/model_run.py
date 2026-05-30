@@ -1,8 +1,7 @@
 """ModelRun — persists one AI gateway call.
 
-Written after each gateway_call() completes. Best-effort: the pipeline never
-blocks on this write, but it is how Phase 3 surfaces cost/latency dashboards
-and lets scorecards be tied back to specific runs.
+Written best-effort after each gateway_call() completes; the pipeline never
+blocks on this write. Powers cost/latency dashboards and scorecard attribution.
 """
 
 from __future__ import annotations

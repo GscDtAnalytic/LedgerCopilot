@@ -4,7 +4,7 @@ This package is the single source of truth for the vocabulary used everywhere
 else: actor types, decisions, document types and the legal transitions a case
 may take. Every state transition in the system must be expressed through the
 state machine here and accompanied by an `audit_event` at the I/O boundary
-.
+Every transition must pass the state machine and emit an audit_event at the I/O boundary.
 """
 
 from packages.domain.enums import ActorType, Decision, DocumentType

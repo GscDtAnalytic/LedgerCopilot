@@ -89,7 +89,7 @@ export default async function PromptDetailPage({ params }: Props) {
         {/* Scorecard / gate check */}
         <section aria-labelledby="scorecard-heading">
           <h2 id="scorecard-heading" className="mb-4 text-sm font-semibold uppercase tracking-wider">
-            Scorecard vs gate rules
+            Scorecard vs promotion gate rules
           </h2>
 
           {!sc ? (

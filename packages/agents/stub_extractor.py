@@ -1,12 +1,8 @@
-"""Stub extraction agent for Phase 1 MVP.
+"""Stub extraction agent — regex-based fallback used when no API key is configured.
 
-Returns a realistic ExtractionOutput from raw text content, simulating what the
-real multimodal agent (prompt doc §1.3-§1.9) will produce. Replaced in Phase 2
-by calls to the ai_gateway with the versioned prompt registry.
-
-The stub implements the same structural contract:
+Returns a realistic ExtractionOutput from raw text content. The stub implements
+the same structural contract as the real agent:
 - Every field has a confidence score.
-- Critical fields use Self-Consistency k=3 logic even here (trivially agrees).
 - Output is always validated by ExtractionOutput before being returned.
 """
 

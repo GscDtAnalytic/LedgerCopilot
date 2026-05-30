@@ -10,9 +10,6 @@ Two outcome tiers:
   - Soft mismatch (deltas, risk_delta > 0, matched=False): amount deviates from
     PO/payment beyond threshold — escalates to human_review with explanation.
   - Clean match: matched=True, risk_delta=0.0.
-
-Wiki: (dedup → reject);
-(reconciliar pós-extração; consistência entre sistemas).
 """
 
 from __future__ import annotations
@@ -31,8 +28,8 @@ class ReconciliationContext(BaseModel):
     po_total: float | None = None
     payment_total: float | None = None
     # True when another non-rejected case with the same business key already exists.
-    # Detection logic lives in (business key dedup); the pipeline passes
-    # the result here so the engine remains pure.
+    # Detection logic lives in pipeline + business_key module; the result is
+    # injected here so the engine remains pure.
     business_key_seen: bool = False
     supplier_blocklisted: bool = False
 
@@ -60,7 +57,7 @@ def reconcile(fields: ExtractionOutput, context: ReconciliationContext) -> Recon
     """Reconcile extracted fields against the injected context.
 
     Determinism: every branch is a pure function of `fields` and `context`.
-    No LLM call, no randomness.
+    No LLM call, no randomness — purely deterministic.
     """
     deltas: list[ReconciliationDelta] = []
 

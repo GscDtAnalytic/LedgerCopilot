@@ -1,10 +1,10 @@
-"""Supplier registry — reference data for policy + reconciliation.
+"""Supplier registry — reference data for policy and reconciliation.
 
 Lets the pipeline answer two questions deterministically at the I/O boundary:
   - is this supplier registered? (p-supplier-unknown policy)
   - is this supplier blocklisted? (hard reject in reconciliation)
 
-Looked up by CNPJ within an organization. Pure engines never touch this table —
+Looked up by CNPJ within an org. Pure engines never touch this table —
 apps/api/services/reference.py reads it and injects the result.
 """
 

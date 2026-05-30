@@ -18,7 +18,7 @@ from apps.api.models.model_run import ModelRun
 logger = logging.getLogger(__name__)
 
 # Monotonic counter of trace persist failures. Readable by health checks or
-# Prometheus text exposition when that lands. Never reset at runtime.
+# Prometheus text exposition. Never reset at runtime.
 trace_failure_count: int = 0
 
 

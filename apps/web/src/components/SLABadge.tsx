@@ -1,8 +1,8 @@
 /**
  * SLABadge — shows a warning when a case has been waiting too long.
  *
- * Calm tech: only renders something visible when action is
- * genuinely needed. Hidden otherwise. Color is paired with a text label.
+ * Only renders when action is genuinely needed; hidden otherwise.
+ * Color is paired with a text label.
  */
 
 interface Props {

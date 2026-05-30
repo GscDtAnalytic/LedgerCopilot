@@ -12,7 +12,6 @@ from apps.api.models.base import Base, TimestampMixin, new_uuid
 class Case(Base, TimestampMixin):
     __tablename__ = "cases"
     __table_args__ = (
-        # Partial index for fast business-key dedup lookups.
         # NOT unique — the same invoice may be retried; uniqueness is enforced
         # in the application by checking status (not rejected/received).
         Index("ix_cases_org_business_key", "organization_id", "business_key"),
@@ -26,8 +25,7 @@ class Case(Base, TimestampMixin):
         String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     # Current status — transitions are validated by packages.domain.state_machine
-    # before the DB write; every transition also writes an immutable audit_event
-    # in the same transaction.
+    # before the DB write; every transition writes an immutable audit_event atomically.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=CaseStatus.RECEIVED)
     # document_type populated after CLASSIFIED stage
     document_type: Mapped[str | None] = mapped_column(String(32), nullable=True)

@@ -1,8 +1,8 @@
 """GET /metrics — Prometheus scrape endpoint.
 
-Uses multiprocess collector when PROMETHEUS_MULTIPROC_DIR is set, which lets
+Uses multiprocess collector when PROMETHEUS_MULTIPROC_DIR is set, letting
 the arq worker and the API process share a single scrape surface.
-Without the env var (default dev), only in-process metrics are exported.
+Without the env var, only in-process metrics are exported.
 """
 
 from __future__ import annotations

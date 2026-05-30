@@ -3,8 +3,6 @@
 Imported by both the API and the arq worker. When PROMETHEUS_MULTIPROC_DIR is
 set, prometheus_client writes metric state to shared files; the /metrics endpoint
 aggregates across all processes via MultiProcessCollector.
-
-Hierarchy follows wiki conceitos/monitoring-vs-observability — negócio → LLMOps → infra.
 """
 
 from __future__ import annotations
@@ -76,7 +74,7 @@ injection_suspected_total = Counter(
     "Documents flagged for potential prompt injection",
 )
 
-# ── 4. HITL / Temporal metrics ────────────────────────────────────
+# ── 4. HITL / Temporal metrics ────────────────────────────────────────────────
 
 hitl_workflows_started_total = Counter(
     "ledger_hitl_workflows_started_total",

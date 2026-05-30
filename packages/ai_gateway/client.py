@@ -35,10 +35,9 @@ _FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "claude-haiku-4-5-20251001
 _anthropic_client: Any = None
 
 # Optional concurrency cap on outbound model calls.
-# AI_MAX_CONCURRENCY=0 (default) means unlimited; a positive value bounds the number
-# of in-flight requests so a wide fan-out (e.g. eval SC k=3 over many fixtures) stays
-# under the provider's concurrent-connection rate limit. Created lazily inside the
-# running loop so it binds to the right event loop.
+# AI_MAX_CONCURRENCY=0 (default) means unlimited; a positive value bounds in-flight
+# requests so a wide fan-out (e.g. eval SC k=3 over many fixtures) stays under the
+# provider's rate limit. Created lazily inside the running loop so it binds correctly.
 _concurrency_sem: asyncio.Semaphore | None = None
 
 
@@ -82,7 +81,7 @@ def _get_client() -> Any:
 
         # AsyncAnthropic so gateway_call can be awaited concurrently.
         # The k=3 Self-Consistency calls in run_extraction are gathered in parallel;
-        # the old synchronous client serialised them and blocked the event loop.
+        # a synchronous client would serialise them and block the event loop.
         _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
     except Exception:
         return None
@@ -106,11 +105,11 @@ async def gateway_call(
 
     system_override: when provided (resolved from DB by the pipeline via
     apps/api/services/prompts.get_active_system_text), it takes precedence
-    over the in-process registry. This is what makes POST /prompts/{id}/promote
-    actually affect what the worker runs.
+    over the in-process registry — this is what makes prompt promotion actually
+    affect the running worker.
 
     Falls back to the stub extractor when ANTHROPIC_API_KEY is not configured,
-    so the pipeline can run end-to-end in dev without credentials.
+    so the pipeline can run end-to-end without credentials.
     """
     prompt_version = get_prompt(prompt_alias)
     system_text = system_override if system_override is not None else prompt_version.system
@@ -192,7 +191,7 @@ async def _stub_response(
 
     When temperature > 0 (Self-Consistency k=3 path), SC is inert in stub mode
     because the extractor is deterministic — all k runs return identical output.
-    This is expected behaviour in dev/demo; a live ANTHROPIC_API_KEY enables real SC.
+    A live ANTHROPIC_API_KEY enables real SC with genuine diversity across runs.
     """
     from packages.agents.stub_extractor import extract_from_text
 
@@ -201,7 +200,7 @@ async def _stub_response(
 
         _logging.getLogger(__name__).warning(
             "gateway.stub sc=inert model=stub temperature=%.1f "
-            "(SC k=3 calls are identical without ANTHROPIC_API_KEY)",
+            "(SC k=3 calls are identical in stub mode — use a real API key for diversity)",
             temperature,
         )
 

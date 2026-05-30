@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models (async, SQLAlchemy 2.0 style).
 
-I/O lives here, not in packages/. The models reuse enums from packages.domain
-but never import SQLAlchemy into the pure packages.
+I/O lives here, not in packages/. The models reuse enums from packages.domain;
+SQLAlchemy must never be imported into the pure packages.
 """
 
 from apps.api.models.audit import AuditEvent

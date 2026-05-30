@@ -1,17 +1,16 @@
 """Prompt registry API — CRUD for versioned prompts.
 
 Endpoints:
-  GET  /api/v1/prompts           — list all active prompt versions  (any authenticated user)
-  POST /api/v1/prompts           — create a new version             (admin only)
-  GET  /api/v1/prompts/{id}      — get one version                  (any authenticated user)
-  POST /api/v1/prompts/{id}/promote — set alias (dev|staging|production)
-                                      staging→production requires passing scorecard
-                                     
+  GET  /api/v1/prompts              — list all active versions  (any authenticated user)
+  POST /api/v1/prompts              — create a new version      (admin only)
+  GET  /api/v1/prompts/{id}         — get one version           (any authenticated user)
+  POST /api/v1/prompts/{id}/promote — set alias (dev|staging|production);
+                                      staging→production requires a passing scorecard
+                                      (admin only)
 
-The staging→production gate enforces  at the API level. eval.gate
-enforces the same rules as a CLI gate for CI usage. When promoted, the new system_text
-is picked up by the pipeline worker on the next invocation via apps/api/services/prompts
-.
+eval.gate enforces the same promotion rules as a CLI gate for CI. When promoted,
+the new system_text is picked up by the pipeline worker on the next invocation
+via apps/api/services/prompts.
 """
 
 from __future__ import annotations
@@ -118,9 +117,9 @@ async def promote_prompt(
 ) -> PromptVersionOut:
     """Assign an alias to a prompt version (admin only).
 
-    Promoting to 'production' requires a passing scorecard.
-    Once promoted, the pipeline worker picks up the new system_text on the next
-    invocation via apps/api/services/prompts.get_active_system_text.
+    Promoting to 'production' requires a passing scorecard. Once promoted,
+    the pipeline worker picks up the new system_text on the next invocation
+    via apps/api/services/prompts.get_active_system_text.
     """
     if body.alias not in _VALID_ALIASES:
         raise HTTPException(status_code=422, detail=f"alias must be one of {_VALID_ALIASES}")
@@ -151,7 +150,7 @@ async def promote_prompt(
 
 
 def _check_gating_rules(scorecard: dict, version_id: str) -> None:
-    """Raise HTTPException if any promotion rule from  is violated."""
+    """Raise HTTPException if any promotion gating rule is violated."""
     from eval.gate import MAX_FALSE_AUTO_APPROVE_DELTA, MIN_CRITICAL_FIELD_ACCURACY
 
     far = scorecard.get("false_auto_approve_rate", 0.0)

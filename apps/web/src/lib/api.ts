@@ -1,7 +1,6 @@
 /**
  * Typed fetch wrappers for the LedgerCopilot API.
- * Types are derived from the API response shapes — not duplicated by hand
- *.
+ * Types are derived from API response shapes — not duplicated by hand.
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";

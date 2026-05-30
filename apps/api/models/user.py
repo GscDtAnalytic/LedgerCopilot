@@ -1,4 +1,4 @@
-"""User — belongs to an Organization, has a role."""
+"""User — belongs to an Organization, carries a role (analyst | approver | admin)."""
 
 from __future__ import annotations
 

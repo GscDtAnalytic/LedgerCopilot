@@ -1,7 +1,7 @@
 """PolicyDecision — persisted output of each policy rule evaluation.
 
-One row per policy per case. Makes "which policies fired on this case" queryable
-without parsing audit_event JSON.
+One row per policy per case. Makes "which policies fired on this case" directly
+queryable without JSON parsing of the audit_event payload.
 """
 
 from __future__ import annotations

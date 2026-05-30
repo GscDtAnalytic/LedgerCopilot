@@ -4,7 +4,7 @@
  * Server Component. Calm layout: decision and justification first (what the
  * analyst needs to act), then extracted fields with confidence, then validation
  * results, then the full audit timeline. Context on demand, not all at once
- *.
+ * (calm tech)
  */
 
 import Link from "next/link";

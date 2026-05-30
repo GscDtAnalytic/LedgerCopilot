@@ -8,9 +8,8 @@ received → classified → extracted → validated → reconciled → policy_ev
                                 └─ edited → (back to extracted, so validation re-runs)
 
 This module is pure: it only answers "is this transition legal?". Persisting the
-transition and writing the accompanying immutable `audit_event` in the same DB
-transaction is the caller's job at the I/O boundary. There is no
-case mutation without an event.
+transition and writing the immutable audit_event in the same DB transaction is the
+caller's responsibility. There is no case mutation without an event.
 """
 
 from __future__ import annotations

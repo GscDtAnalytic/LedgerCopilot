@@ -1,7 +1,7 @@
 /**
  * Monitoring dashboard — cost/latency per stage + case throughput.
  *
- * Server Component. Data follows data-ink principle:
+ * Server Component. Data follows the data-ink principle:
  * no 3D, no gratuitous color, every number has context (unit, benchmark).
  * Recharts bar chart for latency; simple stat cards for cost and throughput.
  */

@@ -1,19 +1,17 @@
 """Review Assistant agent (Agent 6) — turns the structured signals of a decided
 case into a short, analyst-facing explanation.
 
-Goal: produce the one-line justification
-the analyst reads in the inbox, e.g. *"Sent to review for value mismatch and new
-supplier."* — never the raw LLM chain-of-thought.
+Produces the one-line justification the analyst reads in the inbox, e.g.
+*"Sent to review for value mismatch and new supplier."* — never the raw LLM
+chain-of-thought.
 
-Deterministic-first: the explanation is composed from the
-structured outputs the deterministic engines already produced (validation rules,
-policy decisions, reconciliation deltas), not from a fresh LLM call. This keeps the
-analyst's explanation perfectly faithful to what actually drove the decision and
-costs nothing per case. An optional LLM rewrite for tone can wrap this later, but the
-*reasons* and *evidence_refs* it returns are the auditable truth.
+Deterministic-first: the explanation is composed from the structured outputs the
+deterministic engines already produced (validation rules, policy decisions,
+reconciliation deltas), not from a fresh LLM call. This keeps the explanation
+faithful to what drove the decision and costs nothing per case.
 
-Output language is English to match the product UI; the BR fiscal
-domain terms stay as-is in the data.
+Output language is English to match the product UI; BR fiscal domain terms stay
+as-is in the data.
 """
 
 from __future__ import annotations

@@ -1,9 +1,7 @@
 """Lightweight trace capture for every model call.
 
-Every call to the gateway records: prompt, completion, tool calls, tokens,
-latency, model, stage, cost. Phase 3 persists these to the `model_run` table.
-For Phase 2, traces are logged as structured JSON — enough for debugging and
-cost awareness without the DB schema yet.
+Records prompt, completion, tokens, latency, model, stage, and cost.
+Persisted to the model_runs table; also logged as structured JSON for debugging.
 """
 
 from __future__ import annotations
@@ -14,8 +12,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# Approximate cost per 1M tokens (USD). Kept simple for Phase 2; Phase 3
-# moves to a proper cost table updated from provider pricing.
+# Approximate cost per 1M tokens (USD). Update when provider pricing changes.
 _COST_PER_MTK: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5-20251001": {"input": 0.25, "output": 1.25},

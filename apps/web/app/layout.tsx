@@ -10,8 +10,7 @@ export const metadata: Metadata = {
 
 /**
  * Root layout. Server Component by default.
- * The skip link and landmark roles are baseline accessibility, not an add-on
- *.
+ * Skip link and landmark roles are baseline accessibility.
  */
 export default function RootLayout({
   children,

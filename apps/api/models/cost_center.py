@@ -1,4 +1,4 @@
-"""Cost center reference data — feeds the "cost_center inválido" validation.
+"""Cost center reference data — feeds the cost_center_valid validation rule.
 
 The set of active cost-center codes for an org is injected into the validation
 engine as a ValidationContext; an extracted cost_center not in the set is a

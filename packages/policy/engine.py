@@ -3,9 +3,6 @@
 Each policy is a named rule that takes extraction fields + validation results and
 returns a PolicyDecision. Rules are pure functions; I/O (supplier lookup, PO
 retrieval) is resolved by the pipeline before calling this module.
-
-Current alias: 'dev' — the Phase 2 essential ruleset.
-Phase 3 adds DB-backed versioning, gating, and the full set from 
 """
 
 from __future__ import annotations
@@ -30,8 +27,8 @@ class PolicyDecision:
     requires_human: bool
     reason: str
     risk_delta: float = 0.0  # additive contribution to overall risk_score
-    # Urgent payments need a second approver. The signal is surfaced
-    # in the HITL UI; enforcing a true two-approver state machine is future work.
+    # Urgent payments need a second approver. The signal is surfaced in the HITL UI;
+    # enforcing a true two-approver state machine is future work.
     requires_dual_approval: bool = False
 
 
@@ -133,7 +130,7 @@ def _policy_amount_threshold(
 ) -> PolicyDecision:
     """Above the auto-approve limit a human must sign off.
 
-    The single most common finance control: large amounts never auto-approve.
+    The most common finance control: large amounts never auto-approve.
     """
     if extracted_total is None:
         return PolicyDecision(

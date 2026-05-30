@@ -1,9 +1,8 @@
 """Audit Narrator agent (Agent 7) — summarises *why* the final decision happened,
 reading the immutable audit-event stream of a case.
 
-This is the read side of event sourcing: the case
-state and its explanation are fully derivable from the append-only ``audit_events``
-log. The narrator never re-computes anything — it walks the
+The case state and its explanation are fully derivable from the append-only
+``audit_events`` log. The narrator never re-computes anything — it walks the
 events the pipeline already wrote and turns each transition's payload into a sentence,
 so the story it tells is exactly what happened, in order.
 

@@ -4,8 +4,8 @@ Called at the I/O boundary in run_extraction. Document content is untrusted data
 and must never reach the LLM without sanitation. Returns (sanitised_text, injection_suspected).
 
 injection_suspected=True is a risk signal propagated to the policy engine, which
-forces human_review regardless of confidence ( §2.4 — treating
-"approve this" inside a document as a signal of risk, never as a command).
+forces human_review regardless of confidence — treating "approve this" inside a
+document as a signal of risk, never as a command.
 """
 
 from __future__ import annotations

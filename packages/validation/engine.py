@@ -1,11 +1,7 @@
-"""Deterministic validation engine.
+"""Deterministic validation engine — pure functions, no LLM, no I/O.
 
-Rules are pure functions: receive data, return result + reason. No LLM, no I/O.
-A rule that returns severity="block" prevents auto_approve regardless of confidence.
-
-Rules added beyond the original:
-- cnpj_valid: validates Brazilian CNPJ check digits (not just digit count).
-- date_order: issue_date must be <= due_date when both are present.
+Each rule receives data and returns a result + reason. A severity="block" result
+prevents auto_approve regardless of extraction confidence.
 """
 
 from __future__ import annotations
@@ -23,11 +19,11 @@ _ITEMS_SUM_TOLERANCE = 0.01  # 1%
 
 
 class ValidationContext(BaseModel):
-    """External reference data injected by the pipeline.
+    """External reference data injected by the pipeline at the I/O boundary.
 
-    Mirrors ReconciliationContext: the engine stays pure (data in, result out) while
-    still being able to validate membership-style rules like cost-center validity.
-    When a field is None, the corresponding rule degrades to a non-blocking check.
+    The engine stays pure (data in, result out) while supporting membership-style
+    rules like cost-center validity. When a field is None, that rule degrades to
+    a non-blocking warn.
     """
 
     valid_cost_centers: frozenset[str] | None = None
@@ -194,8 +190,7 @@ def _rule_cost_center_valid(
     """Cost center, when present, must be one of the org's active codes.
 
     Without a context (valid_cost_centers=None) the engine cannot verify membership,
-    so presence is a non-blocking warn. With a context, an unknown code blocks
-   .
+    so presence is a non-blocking warn. With a context, an unknown code blocks.
     """
     fv = fields.cost_center
     if fv is None or not fv.value:

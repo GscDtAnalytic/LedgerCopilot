@@ -6,8 +6,8 @@
 
 All channels converge on apps.api.services.ingestion.ingest_document so they share
 hash dedup, storage, and the Document+Case+AuditEvent transaction. Document/email
-content is untrusted and is sanitised before it is ever stored or shown to the LLM
-. Each non-duplicate case is enqueued on the shared Redis pool.
+content is untrusted and is sanitised before being stored or injected into the LLM.
+Each non-duplicate case is enqueued on the shared Redis pool.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/intake", tags=["intake"])
 
 _MAX_BODY_LEN = 8_000
 _MAX_CSV_ROWS = 500
-# Strip anything that looks like a prompt-injection attempt.
+# Strip phrases that look like prompt-injection attempts.
 _INJECTION_RE = re.compile(
     r"\b(ignore (all )?(previous|prior|above) instructions?|"
     r"system prompt|forget (everything|all)|you are now)\b",
@@ -207,7 +207,7 @@ async def intake_csv(
 
 
 class ErpIntakeRequest(BaseModel):
-    # Free-form structured record from an ERP/automation. Keys are mapped to the
+    # Free-form structured record from an ERP/automation. Keys are mapped to
     # canonical document fields by canonical_text_from_mapping.
     fields: dict[str, object]
     source_system: str | None = None

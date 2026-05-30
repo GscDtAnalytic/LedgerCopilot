@@ -1,14 +1,12 @@
 """PromptVersion — DB-backed versioned prompt registry.
 
-Each row is a prompt version that can be promoted through aliases:
-    dev → staging → production
-
+Each row is a prompt version promotable through aliases: dev → staging → production.
 Only one row per alias is active at a time. The DB record is the source of truth
 for what prompt ran in production; the in-process registry (packages/ai_gateway/
 registry.py) is used as a fallback when the DB is not reachable.
 
-Promotion from staging → production requires passing eval.gate.
-That check is enforced in the promote endpoint, not here.
+Promotion to production requires a passing eval scorecard (enforced in the promote
+endpoint, not here).
 """
 
 from __future__ import annotations

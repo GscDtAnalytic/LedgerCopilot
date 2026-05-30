@@ -136,7 +136,7 @@ def test_decide_human_review_on_value_mismatch() -> None:
     recon_out = reconcile(fields, ctx)
 
     # Soft mismatch: pipeline sets requires_human=True when matched=False and no hard reject.
-    # This mirrors the pipeline S5 logic added in
+    # Mirrors the pipeline S5 logic: soft mismatch escalates to review.
     requires_human = not recon_out.matched and not recon_out.reject_reason
     risk_policy = 0.3
 

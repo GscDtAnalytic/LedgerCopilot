@@ -1,27 +1,24 @@
 """Extraction agent — calls the ai_gateway and runs Self-Consistency k=3.
 
-Self-Consistency (prompt doc §1.9): for the three critical fields
-(total_amount, tax_id_cnpj, document_number) we run k=3 independent extractions
-and reconcile by majority vote:
+For the three critical fields (total_amount, tax_id_cnpj, document_number) we
+run k=3 independent extractions and reconcile by majority vote:
   - 3/3 agree  → accept value, confidence unchanged
   - 2/3 agree  → accept majority, add low_agreement flag, cap confidence at 0.75
   - 0 agreement → field = null, confidence 0.0, forcing human_review
 
-Document text is sanitised before LLM injection. injection_suspected
-is returned so the pipeline can propagate it to the policy engine and decide().
+Document text is sanitised before LLM injection. injection_suspected is returned
+so the pipeline can propagate it to the policy engine and decide().
 
-The final ExtractionOutput is validated by the Pydantic model before it is used
-anywhere — never raw JSON from the model.
+The final ExtractionOutput is always validated by the Pydantic model — never
+raw JSON from the model.
 
 Dual LLM / Quarantine mode
---------------------------------------
-When quarantine_mode=True, the extraction uses a different prompt alias and
-security posture (see packages/ai_gateway/registry.py "_QUARANTINE_*"):
-
-  - prompt_alias: "quarantine" (ultra-restrictive; shorter; explicit sandbox framing)
+---------------------------
+When quarantine_mode=True:
+  - prompt_alias: "quarantine" (ultra-restrictive; explicit sandbox framing)
   - system_override from DB: BLOCKED — quarantine prompt is immutable
   - k: 1 (deterministic; quarantine goal is isolation, not diversity sampling)
-  - temperature: 0.0 (deterministic)
+  - temperature: 0.0
   - model: quarantine_model arg (cheaper model, e.g. Haiku)
 
 Trust boundary:

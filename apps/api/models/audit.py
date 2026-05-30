@@ -1,4 +1,4 @@
-"""AuditEvent — the immutable backbone of the system.
+"""AuditEvent — the immutable audit trail.
 
 There is no case mutation without an event. Every state transition persists one
 of these in the same DB transaction as the Case.status update. The table is

@@ -1,7 +1,7 @@
-"""JWT auth + RBAC utilities.
+"""JWT auth and RBAC enforcement. Roles: analyst, approver, admin.
 
-Uses PyJWT (transitive dependency). Passwords are SHA-256 hashed —
-adequate for a demo; production would use bcrypt via passlib.
+Uses PyJWT. Passwords are SHA-256 hashed — adequate for a demo;
+production should use bcrypt via passlib.
 """
 
 from __future__ import annotations

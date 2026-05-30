@@ -1,7 +1,7 @@
 """ReconciliationResult — persisted output of the reconciliation engine.
 
-Materialises what was previously only in audit_event payload, making it
-queryable without JSON parsing.
+Materialises what was previously only in the audit_event payload, making it
+directly queryable without JSON parsing.
 """
 
 from __future__ import annotations

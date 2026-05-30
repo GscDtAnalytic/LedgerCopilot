@@ -1,11 +1,10 @@
 """Shared document ingestion.
 
 Every channel (upload, email, csv, erp, bucket) converges here: hash → dedup →
-store → Document + Case (RECEIVED) + first AuditEvent in one transaction. Keeping
-this in one place means every channel gets the same traceability guarantees and
-the same hash-based deduplication.
+store → Document + Case (RECEIVED) + first AuditEvent in one transaction. A single
+path guarantees every channel gets the same traceability and hash-based deduplication.
 
-Enqueuing the pipeline job is left to the caller, because the Redis handle differs
+Enqueuing the pipeline job is left to the caller because the Redis handle differs
 by context (API request pool vs. arq worker context).
 """
 

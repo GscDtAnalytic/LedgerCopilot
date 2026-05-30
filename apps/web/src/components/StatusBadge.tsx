@@ -1,8 +1,8 @@
 /**
  * StatusBadge — accessible chip conveying case status.
  *
- * Color is never the sole carrier of meaning: the label is
- * always present. The aria-label makes the semantic explicit for screen readers.
+ * Color is never the sole carrier of meaning: the label is always present.
+ * The aria-label makes the semantic explicit for screen readers.
  */
 
 import { statusMeta } from "@/lib/format";

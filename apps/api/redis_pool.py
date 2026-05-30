@@ -1,7 +1,7 @@
-"""Shared arq Redis pool.
+"""Shared arq Redis pool singleton.
 
-Initialised once at API startup (main.py on_startup) and closed on shutdown.
-Callers import `get_redis_pool()` instead of calling `arq.create_pool` per request.
+Initialised once at API startup and closed on shutdown.
+Callers import `get_redis_pool()` instead of creating a pool per request.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Dev seed: default org + demo users for Phase 4 RBAC demo.
+"""Idempotent seed: default org, demo users, and reference data.
 
 Demo credentials (all passwords: demo123):
   analyst@demo.com  — analyst role

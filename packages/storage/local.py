@@ -1,4 +1,4 @@
-"""Local filesystem storage backend — used in development.
+"""Local filesystem storage backend — dev default, configurable via storage_backend setting.
 
 Writes to a configurable base directory. Storage path == full filesystem path,
 so existing Document rows that already hold a full path work without migration.

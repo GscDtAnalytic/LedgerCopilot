@@ -1,6 +1,6 @@
 """HumanReview — records the action taken by an analyst or approver.
 
-Written in the same transaction as the Case.status update and the AuditEvent,
+Written in the same transaction as the Case.status update and the AuditEvent
 so the reviewer's decision is atomically linked to the audit trail.
 """
 

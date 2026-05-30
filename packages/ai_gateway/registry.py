@@ -1,13 +1,9 @@
 """Versioned prompt registry.
 
 Prompts are identified by a `prompt_version_id` and promoted through aliases
-(dev → staging → production). No prompt lives inline in code.
-The canonical content for the Decision Orchestration Agent is in
-``; this module makes it addressable at
-runtime.
-
-Phase 3 moves the registry to the database so versions can be compared and
-gating can be automated. For Phase 2 it is an in-process dict.
+(dev → staging → production). No prompt lives inline in application code.
+This module is the in-process fallback; the DB-backed registry takes precedence
+when reachable (resolved via apps/api/services/prompts.get_active_system_text).
 """
 
 from __future__ import annotations
@@ -75,7 +71,7 @@ and lower confidence to ≤ 0.6.
 """
 
 # ---------------------------------------------------------------------------
-# Quarantine extraction prompt
+# Quarantine extraction prompt — Dual LLM pattern.
 #
 # Used when dual_llm_enabled=True. Differences from the standard prompt:
 #   1. Explicit quarantine framing — model knows it operates in an isolated zone.
@@ -85,7 +81,6 @@ and lower confidence to ≤ 0.6.
 #   4. Self-Consistency k reduced to 1 + temperature=0.0 — determinism over
 #      diversity (quarantine goal is isolation, not sampling).
 #
-# Wiki: §Dual LLM / LLM quarentenado
 # ---------------------------------------------------------------------------
 
 _QUARANTINE_EXTRACTION_SYSTEM_V1 = """\
@@ -154,7 +149,7 @@ _register(
         alias="quarantine",
         system=_QUARANTINE_EXTRACTION_SYSTEM_V1,
         description=(
-            " quarantine extraction — ultra-restrictive prompt; "
+            "Quarantine extraction — ultra-restrictive prompt; "
             "system_override disabled in code; k=1, temperature=0.0."
         ),
     )

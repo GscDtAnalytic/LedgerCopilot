@@ -1,8 +1,8 @@
 """Intake agent (Agent 1) — identifies document type, language, file quality and
 parse strategy BEFORE extraction runs.
 
-Deterministic by design: this is classification/routing,
-not reasoning, so it is pure code — no LLM. The LLM only enters at extraction.
+Deterministic by design: this is classification/routing, not reasoning,
+so it is pure code — no LLM. The LLM only enters at extraction.
 
 Previously this logic was scattered: document type lived in ``workers/pipeline``
 (``_classify_document_type``) and quality/parse-strategy lived implicitly in

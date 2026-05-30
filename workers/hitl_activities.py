@@ -1,4 +1,4 @@
-"""Temporal HITL activities.
+"""Temporal HITL activities — I/O boundary for the HitlWorkflow.
 
 Activities are the I/O boundary in Temporal workflows.  The HitlWorkflow
 (packages/workflows/hitl.py) calls these by string name; the worker registers

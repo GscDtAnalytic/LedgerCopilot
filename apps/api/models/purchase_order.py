@@ -1,7 +1,7 @@
-"""Purchase order reference data — feeds reconciliation "document vs PO".
+"""Purchase order reference data — feeds the reconciliation "document vs PO" check.
 
 The reconciliation engine compares the extracted total against po_total; the
-amount-delta policy uses the same number. Looked up by supplier CNPJ within an org.
+amount-delta policy rule uses the same value. Looked up by supplier CNPJ within an org.
 """
 
 from __future__ import annotations

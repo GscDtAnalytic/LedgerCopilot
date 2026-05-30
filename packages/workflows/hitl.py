@@ -1,20 +1,17 @@
-"""HITL Temporal workflow.
+"""HITL Temporal workflow — durable human-review orchestration with SLA enforcement."""
 
-Implements durable orchestration for human review with SLA enforcement:
   1. Workflow starts when the pipeline routes a case to IN_HUMAN_REVIEW.
   2. It sleeps (durably — survives crashes/restarts) until:
      a. A reviewer submits a decision → review_submitted Signal arrives, workflow completes.
      b. SLA timer fires → persist_sla_escalation activity runs, workflow completes as "sla_expired".
 
-Why Temporal here:
-- arq handles short deterministic tasks (pipeline S1-S7) well.
-- Temporal handles application workflows that must pause for minutes/hours/days — exactly
-  the HITL wait. The durable execution model means the SLA timer survives worker restarts.
+arq handles short deterministic tasks (pipeline stages) well. Temporal handles
+workflows that must pause for minutes/hours/days — exactly the HITL wait. The
+durable execution model means the SLA timer survives worker restarts.
 
 This module is intentionally pure Python:
   - No direct I/O (DB, network) — those live in workers/hitl_activities.py.
   - Activity calls use string names so the workflow does not import from workers/ or apps/.
-  -  pure packages do not import from apps/.
 """
 
 from __future__ import annotations
