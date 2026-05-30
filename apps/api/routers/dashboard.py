@@ -53,12 +53,7 @@ async def get_dashboard(
     # across orgs (previously get_optional_user allowed an unauthenticated, org-wide read).
     org_filter = Case.organization_id == user.org_id
 
-    total = (
-        await session.scalar(
-            select(func.count(Case.id)).where(org_filter)
-        )
-        or 0
-    )
+    total = await session.scalar(select(func.count(Case.id)).where(org_filter)) or 0
 
     week_ago = datetime.now(UTC) - timedelta(days=7)
     cases_this_week = (
