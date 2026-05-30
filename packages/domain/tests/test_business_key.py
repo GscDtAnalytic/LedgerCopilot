@@ -34,6 +34,7 @@ def test_cnpj_punctuation_stripped() -> None:
     assert key is not None
     assert "cnpj:12345678000190" in key
 
+
 def test_deterministic_same_fields_same_key() -> None:
     key1 = compute_business_key(_fields())
     key2 = compute_business_key(_fields())
@@ -64,12 +65,14 @@ def test_missing_date_still_produces_key() -> None:
     assert key is not None
     assert "date:" not in key
 
+
 def test_total_normalised_to_two_decimal_places() -> None:
     key1 = compute_business_key(_fields(total=1000.0))
     key2 = compute_business_key(_fields(total=1000))
     assert key1 is not None
     assert key1 == key2
     assert "total:1000.00" in key1
+
 
 def test_invalid_cnpj_length_returns_none() -> None:
     # 13-digit CNPJ is invalid — should return None.

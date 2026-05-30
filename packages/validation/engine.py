@@ -76,12 +76,11 @@ def _validate_cnpj_check_digits(digits: str) -> bool:
         return 0 if remainder < 2 else 11 - remainder
 
     nums = [int(d) for d in digits]
-    first_weights  = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    first_weights = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
     second_weights = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
 
     return (
-        _calc(nums[:12], first_weights) == nums[12]
-        and _calc(nums[:13], second_weights) == nums[13]
+        _calc(nums[:12], first_weights) == nums[12] and _calc(nums[:13], second_weights) == nums[13]
     )
 
 
@@ -130,7 +129,9 @@ def _rule_date_order(fields: ExtractionOutput) -> RuleResult:
         due = date.fromisoformat(str(due_fv.value))
         if due < issue:
             return RuleResult(
-                "date_order", False, "block",
+                "date_order",
+                False,
+                "block",
                 f"due_date {due} is before issue_date {issue}",
             )
     except ValueError:
