@@ -13,6 +13,7 @@ from apps.api.models.extraction import ExtractionResult
 from apps.api.models.human_review import HumanReview
 from apps.api.models.model_run import ModelRun
 from apps.api.models.organization import Organization
+from apps.api.models.policy_decision import PolicyDecision
 from apps.api.models.prompt_version import PromptVersion
 from apps.api.models.reconciliation_result import ReconciliationResult
 from apps.api.models.user import User
@@ -28,6 +29,7 @@ __all__ = [
     "HumanReview",
     "ModelRun",
     "Organization",
+    "PolicyDecision",
     "PromptVersion",
     "ReconciliationResult",
     "TimestampMixin",
