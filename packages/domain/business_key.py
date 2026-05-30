@@ -24,11 +24,20 @@ from packages.domain.entities import ExtractionOutput
 _NON_DIGIT = re.compile(r"\D")
 
 
-def _normalise_cnpj(raw: str | float | None) -> str | None:
+def normalise_cnpj(raw: str | float | None) -> str | None:
+    """Return the 14-digit CNPJ (punctuation stripped) or None if not 14 digits.
+
+    Public helper reused by the reference-data lookup service so registry lookups
+    are punctuation-insensitive (apps/api/services/reference.py).
+    """
     if raw is None:
         return None
     digits = _NON_DIGIT.sub("", str(raw))
     return digits if len(digits) == 14 else None  # CNPJ must be exactly 14 digits
+
+
+# Backwards-compatible private alias (kept for the existing call sites below).
+_normalise_cnpj = normalise_cnpj
 
 
 def _normalise_doc_number(raw: str | float | None) -> str | None:
