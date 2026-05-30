@@ -35,16 +35,16 @@ _DEMO_PASSWORD = "demo123"
 _DEMO_SUPPLIERS = [
     {"cnpj": "12345678000190", "name": "Acme Fornecedora Ltda", "blocklisted": False},
     {"cnpj": "99888777000166", "name": "Blocked Supplier SA", "blocklisted": True},
-    # Globex has a VALID Mod-11 CNPJ (Acme's 12345678000190 does not), so a document
-    # from Globex that matches its PO can clear cnpj_valid and reach auto_approve. The
+    # Northwind has a VALID Mod-11 CNPJ (Acme's 12345678000190 does not), so a document
+    # from Northwind that matches its PO can clear cnpj_valid and reach auto_approve. The
     # invalid-CNPJ Acme is kept on purpose to exercise the cnpj_valid blocking path.
-    {"cnpj": "11222333000181", "name": "Globex Confiavel Ltda", "blocklisted": False},
+    {"cnpj": "44555666000181", "name": "Northwind Traders Ltda", "blocklisted": False},
 ]
 _DEMO_POS = [
     {"po_number": "PO-2024-0042", "supplier_cnpj": "12345678000190", "total_amount": 9500.0},
-    # Under the 5000 auto-approve threshold — pair with a Globex invoice of 4500 to
+    # Under the 5000 auto-approve threshold — pair with a Northwind invoice of 4500 to
     # demonstrate a clean auto_approve end-to-end.
-    {"po_number": "PO-2024-4500", "supplier_cnpj": "11222333000181", "total_amount": 4500.0},
+    {"po_number": "PO-2024-4500", "supplier_cnpj": "44555666000181", "total_amount": 4500.0},
 ]
 _DEMO_PAYMENTS = [
     {"document_number": "NF-2024-00042", "supplier_cnpj": "12345678000190", "amount": 9500.0},
