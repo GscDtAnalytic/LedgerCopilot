@@ -30,3 +30,8 @@ class LocalBackend(StorageBackend):
 
     def exists(self, storage_path: str) -> bool:
         return Path(storage_path).exists()
+
+    def list(self) -> list[str]:
+        if not self._base.exists():
+            return []
+        return [str(p) for p in self._base.iterdir() if p.is_file()]

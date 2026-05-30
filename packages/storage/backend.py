@@ -31,3 +31,12 @@ class StorageBackend(ABC):
     @abstractmethod
     def exists(self, storage_path: str) -> bool:
         """Return True if a key exists (used for idempotency checks)."""
+
+    @abstractmethod
+    def list(self) -> list[str]:
+        """Return all storage keys currently present.
+
+        Used by the bucket-scan ingestion channel to discover files dropped into
+        storage out-of-band. Dedup against already-ingested files is the caller's
+        responsibility (by content hash).
+        """
