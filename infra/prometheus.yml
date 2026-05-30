@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+# Alerting rules (wiki: sli-slo-sla — alerte só o acionável)
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  - job_name: "ledgercopilot-api"
+    # host.docker.internal resolves to the Docker host on Mac/Windows.
+    # On Linux: set DOCKER_HOST_IP=172.17.0.1 or use --network host.
+    static_configs:
+      - targets:
+          - "host.docker.internal:8000"
+    metrics_path: /metrics

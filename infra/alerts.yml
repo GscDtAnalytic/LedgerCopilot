@@ -1,0 +1,34 @@
+# Prometheus alerting rules for LedgerCopilot.
+# Wiki sli-slo-sla: alerte só o acionável — cada alerta aqui exige uma ação clara.
+groups:
+  - name: ledgercopilot
+    rules:
+      - alert: HighHumanReviewRate
+        expr: |
+          sum(rate(ledger_human_reviews_completed_total[30m]))
+          / sum(rate(ledger_cases_decided_total[30m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Human review rate > 50% in last 30m"
+          description: "More than half of cases are going to human review. Check extraction quality or policy thresholds."
+
+      - alert: HighP95LLMLatency
+        expr: |
+          histogram_quantile(0.95, sum by (stage, le) (rate(ledger_llm_latency_ms_bucket[5m]))) > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM p95 latency > 5s on stage {{ $labels.stage }}"
+          description: "95th percentile LLM latency exceeded 5000ms. Check API rate limits or model availability."
+
+      - alert: PipelineErrors
+        expr: sum(rate(ledger_pipeline_errors_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline error rate > 0.1/s"
+          description: "Errors detected in pipeline stages. Check worker logs."
