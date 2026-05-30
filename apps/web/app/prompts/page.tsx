@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { api, type PromptVersion } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { NewPromptForm } from "@/components/NewPromptForm";
 
 export const dynamic = "force-dynamic";
 
@@ -109,11 +110,17 @@ export default async function PromptsPage() {
         decision_acc drops &gt; 5pp
       </div>
 
+      {/* Author surface — renders only for admins (gated inside the component). */}
+      <div className="mb-6">
+        <NewPromptForm />
+      </div>
+
       {versions.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface px-6 py-16 text-center">
           <p className="text-muted">No prompt versions in the DB yet.</p>
           <p className="mt-2 text-xs text-muted">
-            Create one: <code className="rounded bg-background px-1.5 py-0.5">POST /api/v1/prompts</code>
+            Admins can author one with “+ New version” above, or{" "}
+            <code className="rounded bg-background px-1.5 py-0.5">POST /api/v1/prompts</code>.
           </p>
         </div>
       ) : (
