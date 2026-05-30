@@ -1,4 +1,4 @@
-"""HITL Temporal workflow — durable human-review orchestration with SLA enforcement."""
+"""HITL Temporal workflow — durable human-review orchestration with SLA enforcement.
 
   1. Workflow starts when the pipeline routes a case to IN_HUMAN_REVIEW.
   2. It sleeps (durably — survives crashes/restarts) until:
