@@ -29,3 +29,7 @@ class ExtractionResult(Base, TimestampMixin):
     model_name: Mapped[str] = mapped_column(String(64), nullable=False)
     # Overall extraction confidence (min of critical fields)
     overall_confidence: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    # Whether the sanitiser flagged a possible prompt-injection in the document text.
+    # Persisted so a resumed pipeline (e.g. after a human edit) does not silently lose
+    # the signal — context propagation.
+    injection_suspected: Mapped[bool] = mapped_column(nullable=False, default=False)
