@@ -14,7 +14,23 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from pydantic import BaseModel
+
 from packages.domain.entities import ExtractionOutput, ValidationRuleResult
+
+# Tolerance for the "sum of line items must equal total" check.
+_ITEMS_SUM_TOLERANCE = 0.01  # 1%
+
+
+class ValidationContext(BaseModel):
+    """External reference data injected by the pipeline.
+
+    Mirrors ReconciliationContext: the engine stays pure (data in, result out) while
+    still being able to validate membership-style rules like cost-center validity.
+    When a field is None, the corresponding rule degrades to a non-blocking check.
+    """
+
+    valid_cost_centers: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +155,62 @@ def _rule_date_order(fields: ExtractionOutput) -> RuleResult:
     return RuleResult("date_order", True, "warn")
 
 
+def _rule_items_sum_matches_total(fields: ExtractionOutput) -> RuleResult:
+    """Sum of line-item totals must equal total_amount.
+
+    Skipped (pass/warn) when there are no items or no total to compare against —
+    a document without an itemised breakdown is not a failure. When items ARE
+    present and their sum deviates from the total beyond tolerance, it blocks.
+    """
+    if not fields.items:
+        return RuleResult("items_sum_matches_total", True, "warn", "no line items to sum")
+    total_fv = fields.total_amount
+    if total_fv is None or total_fv.value is None:
+        return RuleResult("items_sum_matches_total", True, "warn", "no total to compare against")
+    line_totals = [i.line_total for i in fields.items if i.line_total is not None]
+    if not line_totals:
+        return RuleResult("items_sum_matches_total", True, "warn", "line items lack line_total")
+    try:
+        total = float(total_fv.value)
+    except (TypeError, ValueError):
+        return RuleResult("items_sum_matches_total", True, "warn", "total is not numeric")
+    items_sum = sum(line_totals)
+    if total == 0:
+        return RuleResult("items_sum_matches_total", items_sum == 0, "block", f"sum={items_sum}")
+    delta = abs(items_sum - total) / abs(total)
+    if delta > _ITEMS_SUM_TOLERANCE:
+        return RuleResult(
+            "items_sum_matches_total",
+            False,
+            "block",
+            f"items sum {items_sum:.2f} != total {total:.2f} (delta {delta:.1%})",
+        )
+    return RuleResult("items_sum_matches_total", True, "block")
+
+
+def _rule_cost_center_valid(
+    fields: ExtractionOutput, context: ValidationContext | None
+) -> RuleResult:
+    """Cost center, when present, must be one of the org's active codes.
+
+    Without a context (valid_cost_centers=None) the engine cannot verify membership,
+    so presence is a non-blocking warn. With a context, an unknown code blocks
+   .
+    """
+    fv = fields.cost_center
+    if fv is None or not fv.value:
+        return RuleResult("cost_center_present", False, "warn", "cost_center not extracted")
+    if context is None or context.valid_cost_centers is None:
+        return RuleResult("cost_center_valid", True, "warn", "no registry to validate against")
+    code = str(fv.value).strip()
+    if code not in context.valid_cost_centers:
+        return RuleResult(
+            "cost_center_valid", False, "block", f"cost_center '{code}' not in active registry"
+        )
+    return RuleResult("cost_center_valid", True, "block")
+
+
+# Rules that depend only on the extracted fields.
 _RULES = [
     _rule_amount_non_negative,
     _rule_cnpj_present,
@@ -148,11 +220,20 @@ _RULES = [
     _rule_document_number_present,
     _rule_supplier_name_present,
     _rule_date_order,
+    _rule_items_sum_matches_total,
 ]
 
 
-def run_validations(fields: ExtractionOutput) -> tuple[list[ValidationRuleResult], bool]:
-    """Run all deterministic rules. Returns (results, has_blocking_failure)."""
+def run_validations(
+    fields: ExtractionOutput, context: ValidationContext | None = None
+) -> tuple[list[ValidationRuleResult], bool]:
+    """Run all deterministic rules. Returns (results, has_blocking_failure).
+
+    `context` carries injected reference data (e.g. valid cost-center codes). It is
+    optional so existing callers/tests that only pass `fields` keep working.
+    """
     results = [r(fields).to_schema() for r in _RULES]
+    # Context-dependent rules run separately (they need the injected reference data).
+    results.append(_rule_cost_center_valid(fields, context).to_schema())
     has_block = any(r.severity == "block" and not r.passed for r in results)
     return results, has_block
