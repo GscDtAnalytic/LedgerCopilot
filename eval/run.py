@@ -32,8 +32,10 @@ def main() -> int:
         return 1
 
     if not args.quiet:
-        print(f"Running eval against {dataset_path} with prompt={args.prompt_version}",
-              file=sys.stderr)
+        print(
+            f"Running eval against {dataset_path} with prompt={args.prompt_version}",
+            file=sys.stderr,
+        )
 
     scorecard = asyncio.run(
         run_eval(dataset_root=dataset_path, prompt_version_id=args.prompt_version)

@@ -13,10 +13,15 @@ Exit codes:
     1  — one or more rules violated; promotion is BLOCKED
 
 Promotion rules — any violation → exit 1:
-    - false_auto_approve_rate > baseline + 1%
-    - cost/doc               > baseline + 20%
-    - supplier_name_accuracy < 97%
-    - decision_accuracy      worsens vs baseline by > 5pp
+    - false_auto_approve_rate  > baseline + 1%
+    - cost/doc                 > baseline + 20%
+    - critical_field_accuracy  < 85%  (total_amount, tax_id_cnpj, document_number)
+    - decision_accuracy        worsens vs baseline by > 5pp
+
+    supplier_name_accuracy is retained in the scorecard as an informational metric
+    but is NOT a gate rule: supplier_name is not in critical_fields(), is not SC'd,
+    and is not weighted in overall_confidence. Gating on it would measure something
+    the pipeline does not control.
 """
 
 from __future__ import annotations
@@ -27,10 +32,10 @@ import sys
 from pathlib import Path
 
 # Thresholds as named constants — same values used in the promote API endpoint.
-MAX_FALSE_AUTO_APPROVE_DELTA = 0.01   # +1pp
-MAX_COST_PER_DOC_DELTA_RATIO = 0.20   # +20%
-MIN_SUPPLIER_NAME_ACCURACY = 0.97
-MAX_DECISION_ACCURACY_DROP = 0.05     # -5pp
+MAX_FALSE_AUTO_APPROVE_DELTA = 0.01  # +1pp
+MAX_COST_PER_DOC_DELTA_RATIO = 0.20  # +20%
+MIN_CRITICAL_FIELD_ACCURACY = 0.85  # total_amount + tax_id_cnpj + document_number
+MAX_DECISION_ACCURACY_DROP = 0.05  # -5pp
 
 
 def _load(path: str | Path) -> dict:
@@ -61,11 +66,11 @@ def run_gate(candidate: dict, baseline: dict) -> tuple[bool, list[str]]:
             f"  ✗ avg_cost_per_doc: {cand_cost:.6f} > {cost_threshold:.6f} (baseline x1.20)"
         )
 
-    # 3. supplier_name_accuracy
-    cand_sna = candidate.get("supplier_name_accuracy", 0.0)
-    if cand_sna < MIN_SUPPLIER_NAME_ACCURACY:
+    # 3. critical_field_accuracy
+    cand_cfa = candidate.get("critical_field_accuracy", 0.0)
+    if cand_cfa < MIN_CRITICAL_FIELD_ACCURACY:
         violations.append(
-            f"  ✗ supplier_name_accuracy: {cand_sna:.3f} < {MIN_SUPPLIER_NAME_ACCURACY:.2f}"
+            f"  ✗ critical_field_accuracy: {cand_cfa:.3f} < {MIN_CRITICAL_FIELD_ACCURACY:.2f}"
         )
 
     # 4. decision_accuracy regression

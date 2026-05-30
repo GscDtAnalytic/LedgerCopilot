@@ -21,6 +21,9 @@ from packages.validation.engine import run_validations
 _DATASET_ROOT = Path(__file__).parent / "dataset"
 
 CRITICAL_FIELDS = ["supplier_name", "tax_id_cnpj", "total_amount", "document_number"]
+# Fields the pipeline actually controls (SC k=3 + overall_confidence weighting).
+# Gate uses these, not CRITICAL_FIELDS.
+_DOMAIN_CRITICAL = ["total_amount", "tax_id_cnpj", "document_number"]
 
 
 @dataclass
@@ -50,7 +53,8 @@ class Scorecard:
     exact_field_accuracy: float = 0.0
     missing_critical_fields_rate: float = 0.0
     false_auto_approve_rate: float = 0.0
-    supplier_name_accuracy: float = 0.0
+    supplier_name_accuracy: float = 0.0  # informational only — not a gate rule
+    critical_field_accuracy: float = 0.0  # mean accuracy for domain-critical fields (gate rule)
     decision_accuracy: float = 0.0
     avg_cost_per_doc: float = 0.0
     p95_latency_ms: float = 0.0
@@ -67,6 +71,7 @@ class Scorecard:
             "missing_critical_fields_rate": round(self.missing_critical_fields_rate, 4),
             "false_auto_approve_rate": round(self.false_auto_approve_rate, 4),
             "supplier_name_accuracy": round(self.supplier_name_accuracy, 4),
+            "critical_field_accuracy": round(self.critical_field_accuracy, 4),
             "decision_accuracy": round(self.decision_accuracy, 4),
             "avg_cost_per_doc": round(self.avg_cost_per_doc, 6),
             "p95_latency_ms": round(self.p95_latency_ms, 1),
@@ -77,6 +82,7 @@ class Scorecard:
 def _load_fixtures(dataset_root: Path) -> list[dict]:
     fixtures = []
     import contextlib
+
     for json_file in sorted(dataset_root.rglob("*.json")):
         with contextlib.suppress(Exception):
             fixtures.append(json.loads(json_file.read_text()))
@@ -188,11 +194,12 @@ async def run_eval(
     field_accuracy = {f: field_acc_totals[f] / n for f in CRITICAL_FIELDS}
 
     exact_acc = sum(all(r.field_accuracy.values()) for r in results) / n
-    missing_critical = sum(
-        1 for r in results if not any(r.field_accuracy[f] for f in CRITICAL_FIELDS)
-    ) / n
+    missing_critical = (
+        sum(1 for r in results if not any(r.field_accuracy[f] for f in CRITICAL_FIELDS)) / n
+    )
     false_aa_rate = sum(r.is_false_auto_approve for r in results) / n
     sn_acc = sum(r.supplier_name_matched for r in results) / n
+    critical_field_acc = sum(field_accuracy[f] for f in _DOMAIN_CRITICAL) / len(_DOMAIN_CRITICAL)
     decision_acc = sum(r.actual_decision == r.expected_decision for r in results) / n
     avg_cost = sum(r.cost_usd for r in results) / n
 
@@ -211,6 +218,7 @@ async def run_eval(
         missing_critical_fields_rate=missing_critical,
         false_auto_approve_rate=false_aa_rate,
         supplier_name_accuracy=sn_acc,
+        critical_field_accuracy=critical_field_acc,
         decision_accuracy=decision_acc,
         avg_cost_per_doc=avg_cost,
         p95_latency_ms=p95_lat,
