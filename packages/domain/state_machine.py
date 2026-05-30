@@ -5,7 +5,7 @@ received → classified → extracted → validated → reconciled → policy_ev
             ├─ rejected → closed
             └─ in_human_review ─┬─ approved → closed
                                 ├─ rejected → closed
-                                └─ edited → (back to validated)
+                                └─ edited → (back to extracted, so validation re-runs)
 
 This module is pure: it only answers "is this transition legal?". Persisting the
 transition and writing the accompanying immutable `audit_event` in the same DB
@@ -61,8 +61,11 @@ ALLOWED_TRANSITIONS: dict[CaseStatus, frozenset[CaseStatus]] = {
         }
     ),
     CaseStatus.APPROVED: frozenset({CaseStatus.CLOSED}),
-    # An edited case re-enters the deterministic pipeline at validation.
-    CaseStatus.EDITED: frozenset({CaseStatus.VALIDATED}),
+    # An edited case re-enters at EXTRACTED so the deterministic validation stage
+    # re-runs on the corrected fields. Re-entering at VALIDATED (the old behaviour)
+    # skipped validation and reused the stale ValidationResult, so a human fixing a
+    # field could never clear the blocking failure that caused the escalation.
+    CaseStatus.EDITED: frozenset({CaseStatus.EXTRACTED}),
     CaseStatus.REJECTED: frozenset({CaseStatus.CLOSED}),
     CaseStatus.CLOSED: frozenset(),
 }

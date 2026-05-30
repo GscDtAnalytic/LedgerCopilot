@@ -3,7 +3,7 @@
 Supports three actions:
   - approve → IN_HUMAN_REVIEW → APPROVED → CLOSED       (approver, admin)
   - reject  → IN_HUMAN_REVIEW → REJECTED → CLOSED       (approver, admin)
-  - edit    → IN_HUMAN_REVIEW → EDITED → VALIDATED      (analyst, approver, admin)
+  - edit    → IN_HUMAN_REVIEW → EDITED → EXTRACTED      (analyst, approver, admin)
               edited_fields saved as new ExtractionResult (source=human)
               pipeline re-enqueued from VALIDATED
 
@@ -59,7 +59,8 @@ _RESEND_TARGETS: dict[str, CaseStatus] = {
 _TERMINAL_AFTER: dict[CaseStatus, CaseStatus | None] = {
     CaseStatus.APPROVED: CaseStatus.CLOSED,
     CaseStatus.REJECTED: CaseStatus.CLOSED,
-    CaseStatus.EDITED: CaseStatus.VALIDATED,  # re-enters pipeline at VALIDATED
+    # re-enters at EXTRACTED so validation re-runs on the edit
+    CaseStatus.EDITED: CaseStatus.EXTRACTED,
 }
 
 
@@ -289,8 +290,10 @@ async def review_case(
     except Exception as exc:
         logger.debug("review.hitl_signal_skipped case_id=%s reason=%s", case_id, exc)
 
-    # Re-enqueue pipeline when an edit sets case back to VALIDATED.
-    # The pipeline is resumable from VALIDATED — it will run reconcile→policy→decide.
+    # Re-enqueue pipeline when an edit sets case back to EXTRACTED.
+    # The pipeline is resumable from EXTRACTED — it re-runs validate→reconcile→
+    # policy→decide on the corrected fields, so the human edit can clear a prior
+    # blocking validation (it could not when re-entry was at VALIDATED, #3).
     if target == CaseStatus.EDITED:
         await _reenqueue(case.id)
 

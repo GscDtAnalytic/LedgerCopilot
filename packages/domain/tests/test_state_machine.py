@@ -37,8 +37,10 @@ def test_happy_path_pipeline_is_legal() -> None:
         assert is_valid_transition(current, target)
 
 
-def test_edited_returns_to_validated() -> None:
-    assert is_valid_transition(CaseStatus.EDITED, CaseStatus.VALIDATED)
+def test_edited_returns_to_extracted() -> None:
+    # Re-entry at EXTRACTED (not VALIDATED) so the corrected fields are re-validated (#3).
+    assert is_valid_transition(CaseStatus.EDITED, CaseStatus.EXTRACTED)
+    assert not is_valid_transition(CaseStatus.EDITED, CaseStatus.VALIDATED)
 
 
 def test_closed_is_terminal() -> None:
