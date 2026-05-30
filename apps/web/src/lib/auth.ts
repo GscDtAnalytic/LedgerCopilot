@@ -36,10 +36,18 @@ export function getToken(): string | null {
 
 export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+  // Also mirror into a cookie so Server Components (which cannot read localStorage)
+  // can forward the JWT to the API. max-age matches the backend JWT TTL (8h).
+  if (typeof document !== "undefined") {
+    document.cookie = `${TOKEN_KEY}=${token}; path=/; samesite=lax; max-age=28800`;
+  }
 }
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  if (typeof document !== "undefined") {
+    document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
+  }
 }
 
 export function getCurrentUser(): AuthUser | null {

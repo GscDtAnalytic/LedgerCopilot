@@ -165,29 +165,45 @@ export interface EmailIntakeResponse {
   message: string;
 }
 
-async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    cache: "no-store",
-    ...opts,
-  });
-  if (!res.ok) throw new Error(`API error ${res.status} for ${path}`);
-  return res.json() as Promise<T>;
+/**
+ * Resolve the JWT in either runtime: client reads localStorage, Server Components
+ * read the mirrored cookie via next/headers. This is what lets server-rendered
+ * pages (inbox, case detail, dashboard, monitoring) call the auth'd API — without
+ * it the server fetch carries no token and the API answers 401.
+ */
+async function resolveToken(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("lc_token");
+  }
+  try {
+    const { cookies } = await import("next/headers");
+    const store = await cookies();
+    return store.get("lc_token")?.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
-/** Client-side fetch that attaches the JWT from localStorage. */
-export async function apiFetchAuthed<T>(
-  path: string,
-  opts?: RequestInit,
-): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("lc_token") : null;
-  return apiFetch<T>(path, {
+async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+  const token = await resolveToken();
+  const res = await fetch(`${BASE_URL}${path}`, {
+    cache: "no-store",
     ...opts,
     headers: {
       ...(opts?.headers ?? {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+  if (!res.ok) throw new Error(`API error ${res.status} for ${path}`);
+  return res.json() as Promise<T>;
+}
+
+/** Back-compat alias: apiFetch now attaches the JWT in both runtimes. */
+export async function apiFetchAuthed<T>(
+  path: string,
+  opts?: RequestInit,
+): Promise<T> {
+  return apiFetch<T>(path, opts);
 }
 
 export const api = {
