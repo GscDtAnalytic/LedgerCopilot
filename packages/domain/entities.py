@@ -17,6 +17,21 @@ class FieldValue(BaseModel):
     source: str = "ocr"  # ocr | image | both
 
 
+class LineItem(BaseModel):
+    """A single line item on a document (description + amounts).
+
+    Drives the deterministic "sum of items must match total" validation rule.
+    `line_total` is what the rule sums; `quantity`/`unit_price` are informational.
+    Every item carries its own confidence so the UI can surface uncertain rows.
+    """
+
+    description: str | None = None
+    quantity: float | None = None
+    unit_price: float | None = None
+    line_total: float | None = None
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+
+
 class ExtractionOutput(BaseModel):
     """Validated output of the Extraction stage (prompt doc §1.11 fields block)."""
 
@@ -27,8 +42,15 @@ class ExtractionOutput(BaseModel):
     issue_date: FieldValue | None = None
     due_date: FieldValue | None = None
     document_number: FieldValue | None = None
+    # Line items: drive the "sum of items != total" validation.
+    items: list[LineItem] = Field(default_factory=list)
+    # Accounting dimensions: drive cost-center validation and category policy.
+    cost_center: FieldValue | None = None
+    category: FieldValue | None = None
 
     def critical_fields(self) -> list[FieldValue | None]:
+        # items/cost_center/category are intentionally NOT critical: they must not
+        # affect overall_confidence() or the gate.
         return [self.total_amount, self.tax_id_cnpj, self.document_number]
 
     def overall_confidence(self) -> float:

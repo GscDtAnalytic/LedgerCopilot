@@ -52,7 +52,13 @@ OUTPUT SCHEMA (JSON, no extra keys):
   "currency":        {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
   "issue_date":      {"value": <YYYY-MM-DD|null>, "confidence": <0.0-1.0>, "source": "ocr"},
   "due_date":        {"value": <YYYY-MM-DD|null>, "confidence": <0.0-1.0>, "source": "ocr"},
-  "document_number": {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"}
+  "document_number": {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "cost_center":     {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "category":        {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "items": [
+    {"description": <string|null>, "quantity": <number|null>, "unit_price": <number|null>, \
+"line_total": <number|null>, "confidence": <0.0-1.0>}
+  ]
 }
 
 EXTRACTION RULES:
@@ -60,6 +66,10 @@ EXTRACTION RULES:
 - tax_id_cnpj: return the raw CNPJ digits with punctuation as found (e.g., "12.345.678/0001-90").
 - issue_date / due_date: convert to ISO 8601 YYYY-MM-DD format.
 - currency: prefer ISO 4217 code (BRL, USD, EUR). If only "R$" is found, return "BRL".
+- items: one object per line item. line_total is the per-line amount as a float. Return an empty \
+list [] if the document has no itemised lines — never invent items.
+- cost_center / category: extract only if explicitly present (labels like "Centro de Custo", \
+"Cost Center", "Categoria"). Otherwise null + confidence 0.0.
 - If a field appears multiple times with conflicting values, return the most prominent one \
 and lower confidence to ≤ 0.6.
 """
@@ -101,7 +111,13 @@ SCHEMA (exact keys, no extras):
   "currency":        {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
   "issue_date":      {"value": <YYYY-MM-DD|null>, "confidence": <0.0-1.0>, "source": "ocr"},
   "due_date":        {"value": <YYYY-MM-DD|null>, "confidence": <0.0-1.0>, "source": "ocr"},
-  "document_number": {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"}
+  "document_number": {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "cost_center":     {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "category":        {"value": <string|null>,  "confidence": <0.0-1.0>, "source": "ocr"},
+  "items": [
+    {"description": <string|null>, "quantity": <number|null>, "unit_price": <number|null>, \
+"line_total": <number|null>, "confidence": <0.0-1.0>}
+  ]
 }
 
 FIELD RULES (same as standard — repeating for isolation):
@@ -109,6 +125,8 @@ FIELD RULES (same as standard — repeating for isolation):
 - tax_id_cnpj: raw digits with punctuation as found.
 - issue_date / due_date: ISO 8601 YYYY-MM-DD.
 - currency: ISO 4217 (BRL/USD/EUR). "R$" → "BRL".
+- items: one object per line; line_total as float; empty list [] if none. Never invent items.
+- cost_center / category: only if explicitly labelled; else null + confidence 0.0.
 - Conflicting values → most prominent one, confidence <= 0.6.
 """
 

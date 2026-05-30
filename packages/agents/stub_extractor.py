@@ -14,12 +14,82 @@ from __future__ import annotations
 
 import re
 
-from packages.domain.entities import ExtractionOutput, FieldValue
+from packages.domain.entities import ExtractionOutput, FieldValue, LineItem
 
 
 def _find(pattern: str, text: str) -> str | None:
     m = re.search(pattern, text, re.IGNORECASE)
     return m.group(1).strip() if m else None
+
+
+def _to_float(raw: str | None) -> float | None:
+    """Parse a BR/US-formatted money string into a float (e.g. '9.500,00' → 9500.0)."""
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    # If both separators present, the last one is the decimal separator.
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _extract_items(text: str) -> list[LineItem]:
+    """Heuristic line-item parser.
+
+    Recognises two shapes used in our fixtures / canonical text serialisations:
+      1. "Item: <desc> | Qtd: <q> | Unit: <u> | Total: <t>"  (canonical, pipe-delimited)
+      2. "<n>. <desc> <q> x <u> = <t>"                        (loose receipt style)
+    Returns [] when nothing matches — the validation rule then simply skips.
+    """
+    items: list[LineItem] = []
+
+    # Shape 1: explicit labelled, pipe-delimited line items.
+    for m in re.finditer(
+        r"item:\s*(?P<desc>[^|]+?)\s*\|\s*"
+        r"(?:qtd|quantidade|qty)[:\s]*(?P<qty>[\d.,]+)\s*\|\s*"
+        r"(?:unit|valor\s*unit[aá]rio|unit\s*price)[:\s]*(?:R\$\s*)?(?P<unit>[\d.,]+)\s*\|\s*"
+        r"(?:total|line\s*total)[:\s]*(?:R\$\s*)?(?P<total>[\d.,]+)",
+        text,
+        re.IGNORECASE,
+    ):
+        items.append(
+            LineItem(
+                description=m.group("desc").strip(),
+                quantity=_to_float(m.group("qty")),
+                unit_price=_to_float(m.group("unit")),
+                line_total=_to_float(m.group("total")),
+                confidence=0.80,
+            )
+        )
+
+    if items:
+        return items
+
+    # Shape 2: "<desc> <q> x <u> = <t>".
+    for m in re.finditer(
+        r"(?P<desc>[A-Za-zÀ-ÿ][\w\s.\-]+?)\s+(?P<qty>[\d.,]+)\s*x\s*"
+        r"(?:R\$\s*)?(?P<unit>[\d.,]+)\s*=\s*(?:R\$\s*)?(?P<total>[\d.,]+)",
+        text,
+        re.IGNORECASE,
+    ):
+        items.append(
+            LineItem(
+                description=m.group("desc").strip(),
+                quantity=_to_float(m.group("qty")),
+                unit_price=_to_float(m.group("unit")),
+                line_total=_to_float(m.group("total")),
+                confidence=0.70,
+            )
+        )
+    return items
 
 
 def extract_from_text(text: str, filename: str = "") -> ExtractionOutput:
@@ -57,6 +127,11 @@ def extract_from_text(text: str, filename: str = "") -> ExtractionOutput:
     issue_date = _find(r"(?:emiss[aã]o|issue\s*date)[:\s]+(\d{2}/\d{2}/\d{4})", text)
     due_date = _find(r"(?:vencimento|due\s*date)[:\s]+(\d{2}/\d{2}/\d{4})", text)
 
+    cost_center = _find(r"(?:centro\s+de\s+custo|cost\s*center)[:\s]+([A-Za-z0-9\-]+)", text)
+    category = _find(r"(?:categoria|category)[:\s]+([A-Za-zÀ-ÿ\s_]+?)(?:\n|$|\|)", text)
+
+    items = _extract_items(text)
+
     def _fv(v: object, c: float, src: str = "ocr") -> FieldValue | None:
         return FieldValue(value=v, confidence=c, source=src) if c else None  # type: ignore[arg-type]
 
@@ -68,4 +143,7 @@ def extract_from_text(text: str, filename: str = "") -> ExtractionOutput:
         issue_date=FieldValue(value=issue_date, confidence=0.80) if issue_date else None,
         due_date=FieldValue(value=due_date, confidence=0.80) if due_date else None,
         document_number=_fv(doc_num, doc_conf),
+        items=items,
+        cost_center=FieldValue(value=cost_center, confidence=0.75) if cost_center else None,
+        category=FieldValue(value=category, confidence=0.75) if category else None,
     )
