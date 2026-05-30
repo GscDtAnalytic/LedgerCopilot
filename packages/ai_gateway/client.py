@@ -19,6 +19,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from packages.ai_gateway.redact import redact_pii
 from packages.ai_gateway.registry import get_prompt
 from packages.ai_gateway.tracer import ModelTrace
 
@@ -40,6 +41,7 @@ def _get_client() -> Any:
         return None
     try:
         import anthropic
+
         # AsyncAnthropic so gateway_call can be awaited concurrently.
         # The k=3 Self-Consistency calls in run_extraction are gathered in parallel;
         # the old synchronous client serialised them and blocked the event loop.
@@ -59,6 +61,7 @@ async def gateway_call(
     stage: str,
     model: str | None = None,
     max_tokens: int = 1024,
+    temperature: float = 0.0,
     system_override: str | None = None,
 ) -> tuple[T, ModelTrace]:
     """Call the LLM and return a validated Pydantic instance + trace.
@@ -85,19 +88,27 @@ async def gateway_call(
 
     client = _get_client()
     if client is None:
-        return await _stub_response(user_message, response_model, trace)
+        return await _stub_response(user_message, response_model, trace, temperature=temperature)
 
     start = time.monotonic()
     try:
         message = await client.messages.create(
             model=effective_model,
             max_tokens=max_tokens,
+            temperature=temperature,
             system=system_text,
             messages=[{"role": "user", "content": user_message}],
         )
         raw = message.content[0].text
         in_tok = message.usage.input_tokens
         out_tok = message.usage.output_tokens
+        trace.finish(
+            start,
+            in_tok,
+            out_tok,
+            prompt=redact_pii(user_message),
+            completion=redact_pii(raw),
+        )
     except Exception as exc:
         # Model fallback: try the cheaper model once.
         if effective_model != _FALLBACK_MODEL:
@@ -110,11 +121,10 @@ async def gateway_call(
                 stage=stage,
                 model=_FALLBACK_MODEL,
                 max_tokens=max_tokens,
+                temperature=temperature,
                 system_override=system_override,
             )
         raise RuntimeError(f"gateway: all models failed — {exc}") from exc
-
-    trace.finish(start, in_tok, out_tok)
 
     # Strip markdown fences if the model wrapped the JSON.
     raw = raw.strip()
@@ -137,9 +147,24 @@ async def _stub_response(
     user_message: str,
     response_model: type[T],
     trace: ModelTrace,
+    temperature: float = 0.0,
 ) -> tuple[T, ModelTrace]:
-    """Stub: run the regex extractor and coerce its output to response_model."""
+    """Stub: run the regex extractor and coerce its output to response_model.
+
+    When temperature > 0 (Self-Consistency k=3 path), SC is inert in stub mode
+    because the extractor is deterministic — all k runs return identical output.
+    This is expected behaviour in dev/demo; a live ANTHROPIC_API_KEY enables real SC.
+    """
     from packages.agents.stub_extractor import extract_from_text
+
+    if temperature > 0:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "gateway.stub sc=inert model=stub temperature=%.1f "
+            "(SC k=3 calls are identical without ANTHROPIC_API_KEY)",
+            temperature,
+        )
 
     start = time.monotonic()
     fields = extract_from_text(user_message)

@@ -49,9 +49,7 @@ def sanitise(text: str) -> tuple[str, bool]:
 
     # Strip invisible Unicode control/format chars (RTL override, zero-width, etc.).
     cleaned = "".join(
-        ch
-        for ch in text
-        if ch in _KEEP_WHITESPACE or unicodedata.category(ch) not in _STRIP_CATS
+        ch for ch in text if ch in _KEEP_WHITESPACE or unicodedata.category(ch) not in _STRIP_CATS
     )
 
     # Detect and redact injection patterns; flag the event so policy can escalate.

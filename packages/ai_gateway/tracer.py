@@ -34,16 +34,48 @@ class ModelTrace:
     output_tokens: int = 0
     latency_ms: float = 0.0
     cost_usd: float = 0.0
+    # PII-redacted copies of what was sent/received.
+    # Empty string means trace was not captured (stub or pre-finish).
+    prompt_redacted: str = ""
+    completion_redacted: str = ""
     extra: dict = field(default_factory=dict)
 
-    def finish(self, start: float, input_tokens: int, output_tokens: int) -> None:
+    def finish(
+        self,
+        start: float,
+        input_tokens: int,
+        output_tokens: int,
+        prompt: str = "",
+        completion: str = "",
+    ) -> None:
         self.latency_ms = (time.monotonic() - start) * 1000
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        self.prompt_redacted = prompt
+        self.completion_redacted = completion
         rates = _COST_PER_MTK.get(self.model, {"input": 0.0, "output": 0.0})
         self.cost_usd = (
             input_tokens * rates["input"] + output_tokens * rates["output"]
         ) / 1_000_000
+
+        # Prometheus metrics — best-effort, never block the pipeline.
+        try:
+            from packages.observability.metrics import (
+                llm_cost_usd_total,
+                llm_latency_ms,
+                llm_tokens_total,
+            )
+
+            llm_latency_ms.labels(stage=self.stage, model=self.model).observe(self.latency_ms)
+            llm_cost_usd_total.labels(stage=self.stage, model=self.model).inc(self.cost_usd)
+            llm_tokens_total.labels(stage=self.stage, model=self.model, token_type="input").inc(
+                input_tokens
+            )
+            llm_tokens_total.labels(stage=self.stage, model=self.model, token_type="output").inc(
+                output_tokens
+            )
+        except Exception:
+            pass  # observability must never break the pipeline
 
         logger.info(
             "gateway.trace case=%s stage=%s model=%s prompt=%s "

@@ -12,6 +12,22 @@ is returned so the pipeline can propagate it to the policy engine and decide().
 
 The final ExtractionOutput is validated by the Pydantic model before it is used
 anywhere — never raw JSON from the model.
+
+Dual LLM / Quarantine mode
+--------------------------------------
+When quarantine_mode=True, the extraction uses a different prompt alias and
+security posture (see packages/ai_gateway/registry.py "_QUARANTINE_*"):
+
+  - prompt_alias: "quarantine" (ultra-restrictive; shorter; explicit sandbox framing)
+  - system_override from DB: BLOCKED — quarantine prompt is immutable
+  - k: 1 (deterministic; quarantine goal is isolation, not diversity sampling)
+  - temperature: 0.0 (deterministic)
+  - model: quarantine_model arg (cheaper model, e.g. Haiku)
+
+Trust boundary:
+  UNTRUSTED:  raw document text → quarantine LLM call
+  BOUNDARY:   Pydantic-validated ExtractionOutput (this function's return value)
+  TRUSTED:    policy, reconcile, decide (pure Python — never see raw text)
 """
 
 from __future__ import annotations
@@ -26,6 +42,7 @@ from packages.domain.entities import ExtractionOutput, FieldValue
 
 _CRITICAL = ["total_amount", "tax_id_cnpj", "document_number"]
 _K = 3
+_K_QUARANTINE = 1  # k=1 in quarantine mode; determinism > diversity
 
 
 def _values_agree(vals: list[Any]) -> bool:
@@ -91,32 +108,61 @@ async def run_extraction(
     trace_id: str,
     document_text: str,
     system_override: str | None = None,
+    quarantine_mode: bool = False,
+    quarantine_model: str | None = None,
 ) -> tuple[ExtractionOutput, ModelTrace, list[str], bool]:
-    """Extract fields from document text using Self-Consistency k=3.
+    """Extract fields from document text.
 
-    Sanitises document text before LLM injection.
+    Standard mode (quarantine_mode=False):
+      SC k=3, temperature=1.0, prompt_alias="dev", system_override honoured.
 
-    Returns (merged_output, representative_trace, low_agreement_fields, injection_suspected).
-    injection_suspected=True means the document contained injection patterns;
-    the pipeline must escalate to human_review regardless of confidence.
+    Quarantine mode (quarantine_mode=True):
+      SC k=1, temperature=0.0, prompt_alias="quarantine", system_override BLOCKED.
+      The quarantine LLM uses a dedicated prompt that explicitly forbids following
+      document instructions and cannot be weakened via the DB prompt admin.
+      quarantine_model overrides the model (e.g. Haiku — cheaper, sufficient for extraction).
+
+    Returns:
+      (merged_output, representative_trace, low_agreement_fields, injection_suspected)
     """
     sanitised_text, injection_suspected = sanitise(document_text)
     user_msg = f"OCR_TEXT:\n<<<\n{sanitised_text}\n>>>"
 
-    # Run k extractions concurrently — AsyncAnthropic makes this truly parallel.
-    tasks = [
-        gateway_call(
-            case_id=case_id,
-            trace_id=trace_id,
-            prompt_alias="dev",
-            user_message=user_msg,
-            response_model=ExtractionOutput,
-            stage="extraction",
-            max_tokens=512,
-            system_override=system_override,
-        )
-        for _ in range(_K)
-    ]
+    if quarantine_mode:
+        # Quarantine: single deterministic call; system_override blocked so the
+        # immutable quarantine prompt cannot be weakened via the DB admin panel.
+        tasks = [
+            gateway_call(
+                case_id=case_id,
+                trace_id=trace_id,
+                prompt_alias="quarantine",
+                user_message=user_msg,
+                response_model=ExtractionOutput,
+                stage="extraction-quarantine",
+                max_tokens=512,
+                temperature=0.0,
+                system_override=None,  # BLOCKED — quarantine prompt is immutable
+                model=quarantine_model,
+            )
+        ]
+    else:
+        # Standard: k=3 with temperature=1.0 for Self-Consistency diversity.
+        # AsyncAnthropic makes these truly parallel.
+        tasks = [
+            gateway_call(
+                case_id=case_id,
+                trace_id=trace_id,
+                prompt_alias="dev",
+                user_message=user_msg,
+                response_model=ExtractionOutput,
+                stage="extraction",
+                max_tokens=512,
+                temperature=1.0,
+                system_override=system_override,
+            )
+            for _ in range(_K)
+        ]
+
     results: list[tuple[ExtractionOutput, ModelTrace]] = await asyncio.gather(*tasks)
 
     runs = [r for r, _ in results]
