@@ -15,22 +15,6 @@ import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const ALL_STATUSES = [
-  "received",
-  "classified",
-  "extracted",
-  "validated",
-  "reconciled",
-  "policy_evaluated",
-  "decided",
-  "auto_approved",
-  "in_human_review",
-  "approved",
-  "edited",
-  "rejected",
-  "closed",
-];
-
 const ALL_DOC_TYPES = ["invoice", "boleto", "receipt", "out_of_scope"];
 
 interface PageProps {
