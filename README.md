@@ -84,8 +84,8 @@ or individually — see the [`Makefile`](./Makefile) and `` §5.
 | Phase | What | Status |
 |---|---|---|
 | **1 — Core MVP** | Upload, classification, extraction, validations, case detail, review queue, audit events | ✅ Complete |
-| **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ⚠️ (re-enqueue wired, fields in request body — needs pipeline test) · Reconciliation ⚠️ | ⚠️ Partial |
-| **3 — LLMOps layer** | Eval framework ✅, gate CLI ✅, scorecards ✅ · Prompt registry now wired to runtime ✅ · Tracing captures tokens/latency/cost ✅; prompt/completion capture planned · Dataset: 1 fixture/slice (expand for statistical significance) | ⚠️ Partial |
+| **2 — Workflow intelligence** | Policy engine ✅, per-field confidence ✅, approve/reject ✅ · Edit flow ✅ · Reconciliation ✅ | ✅ Complete |
+| **3 — LLMOps layer** | Eval framework ✅, gate CLI ✅, scorecards ✅ · Prompt registry wired to runtime ✅ · Tracing captures tokens/latency/cost + redacted prompt/completion ✅ · Dataset: 1 fixture/slice (expand for statistical significance) | ✅ Complete |
 | **4 — Enterprise polish** | JWT auth ✅, RBAC enforced on all endpoints ✅, org-scoped queries ✅, dashboard ✅, audit export ✅ (approver+admin only), email intake ✅ | ✅ Complete |
 
 See [`RUNBOOK.md`](./RUNBOOK.md) for the full backlog, priorities, and acceptance criteria.
@@ -142,7 +142,7 @@ $ uv run python -m eval.gate \
   PROMOTION BLOCKED for extraction-v2-experimental:
 
   ✗ false_auto_approve_rate: 0.025 > 0.000+0.01
-  ✗ supplier_name_accuracy: 0.625 < 0.97
+  ✗ critical_field_accuracy: 0.000 < 0.85
   ✗ decision_accuracy: 0.625 < 0.700 (baseline-0.05)
 
 Exit code: 1
