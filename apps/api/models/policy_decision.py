@@ -26,3 +26,5 @@ class PolicyDecision(Base, TimestampMixin):
     risk_delta: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     policy_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # True when an urgent-payment policy demands a second approver.
+    requires_dual_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
