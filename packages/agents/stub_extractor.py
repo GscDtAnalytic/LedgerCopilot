@@ -98,18 +98,14 @@ def extract_from_text(text: str, filename: str = "") -> ExtractionOutput:
     In production this is replaced by the orchestration agent (prompt doc §1.5 S2).
     The output schema and confidence semantics are identical.
     """
-    # Try to pick up common Brazilian invoice patterns.
-    total_raw = _find(
-        r"(?:total|valor\s+total|amount)[^\d]*?([\d]{1,3}(?:[.,]\d{3})*[.,]\d{2})", text
-    )
-    total_val: float | None = None
-    total_conf = 0.0
-    if total_raw:
-        try:
-            total_val = float(total_raw.replace(".", "").replace(",", "."))
-            total_conf = 0.82
-        except ValueError:
-            pass
+    # Capture the number after a total/amount label, then let _to_float normalise it.
+    # Permissive on purpose: matches grouped BR/US money ("9.500,00") AND the plain
+    # decimals/integers that structured channels emit ("Total: 4000.0" from a CSV/ERP
+    # float). The old regex required exactly two grouped decimals, so structured-channel
+    # amounts never parsed and the case wrongly blocked on amount_present.
+    total_raw = _find(r"(?:total|valor\s+total|amount)[^\d\-]*?(\d[\d.,]*\d|\d)", text)
+    total_val = _to_float(total_raw)
+    total_conf = 0.82 if total_val is not None else 0.0
 
     cnpj_raw = _find(r"(\d{2}[.\-/]?\d{3}[.\-/]?\d{3}[.\-/]?\d{4}[.\-/]?\d{2})", text)
     cnpj_conf = 0.91 if cnpj_raw else 0.0
