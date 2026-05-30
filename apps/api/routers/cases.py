@@ -10,6 +10,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from packages.agents.audit_narrator import AuditEventView, narrate
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,7 @@ from apps.api.schemas.cases import (
     CaseListItem,
     CasesListResponse,
     ExtractionFields,
+    NarrativeResponse,
     ReprocessResponse,
     ValidationRule,
 )
@@ -162,6 +164,37 @@ async def get_audit_trail(
         )
         for (ev,) in rows
     ]
+
+
+@router.get("/{case_id}/narrative", response_model=NarrativeResponse)
+async def get_case_narrative(
+    case_id: str,
+    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NarrativeResponse:
+    """Audit Narrator (Agent 7): a plain-language summary of why the decision happened,
+    derived purely from the immutable audit-event stream.
+    """
+    case = await session.get(Case, case_id)
+    if case is None or case.organization_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Case not found.")
+
+    rows = await session.execute(
+        select(AuditEvent)
+        .where(AuditEvent.case_id == case_id)
+        .order_by(AuditEvent.occurred_at.asc())
+    )
+    events = [
+        AuditEventView(
+            from_status=ev.from_status,
+            to_status=ev.to_status,
+            actor_type=ev.actor_type,
+            actor_id=ev.actor_id,
+            payload=ev.payload,
+        )
+        for (ev,) in rows
+    ]
+    return NarrativeResponse(case_id=case_id, narrative=narrate(events))
 
 
 @router.get("/{case_id}/audit-export")

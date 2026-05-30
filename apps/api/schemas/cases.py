@@ -83,6 +83,11 @@ class AuditEventOut(BaseModel):
     occurred_at: datetime
 
 
+class NarrativeResponse(BaseModel):
+    case_id: str
+    narrative: str
+
+
 class CasesListResponse(BaseModel):
     items: list[CaseListItem]
     total: int
