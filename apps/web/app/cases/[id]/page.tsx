@@ -15,7 +15,7 @@ import { AuditTimeline } from "@/components/AuditTimeline";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { ReviewActions } from "@/components/ReviewActions";
 import { StatusBadge } from "@/components/StatusBadge";
-import { decisionMeta, formatDate, pct } from "@/lib/format";
+import { decisionMeta, formatDate, nextActionLabel, pct } from "@/lib/format";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -55,7 +55,7 @@ export default async function CaseDetailPage({ params }: Props) {
 
   if (!caseData) notFound();
 
-  const { label: decisionLabel, color: decisionColor } = decisionMeta(caseData.decision);
+  const { label: decisionLabel, color: decisionColor, icon: decisionIcon } = decisionMeta(caseData.decision);
   const items = caseData.extraction?.items ?? [];
   // Scalar fields only — `items` is rendered separately as a table below.
   const extractionEntries = caseData.extraction
@@ -92,23 +92,63 @@ export default async function CaseDetailPage({ params }: Props) {
         {/* Decision callout — the most important thing for a reviewer */}
         {caseData.decision && (
           <div
-            className="mt-6 rounded-md border border-border bg-surface p-4"
+            className="mt-6 rounded-md border border-border bg-surface p-5"
             role="region"
             aria-labelledby="decision-heading"
           >
-            <p id="decision-heading" className="text-xs font-medium uppercase tracking-wider text-muted">
-              Decision
-            </p>
-            <p className={`mt-1 text-lg font-semibold ${decisionColor}`}>{decisionLabel}</p>
-            {caseData.justification && (
-              <p className="mt-2 text-sm text-muted">{caseData.justification}</p>
-            )}
-            {caseData.reason_code && (
-              <p className="mt-1 font-mono text-xs text-muted">{caseData.reason_code}</p>
-            )}
+            {/* Decision */}
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true" className={`text-xl font-bold ${decisionColor}`}>{decisionIcon}</span>
+              <p id="decision-heading" className={`text-lg font-semibold ${decisionColor}`}>{decisionLabel}</p>
+            </div>
+
+            <dl className="mt-4 space-y-3">
+              {/* Why */}
+              {caseData.justification && (
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wider text-muted">Why</dt>
+                  <dd className="mt-1 text-sm">{caseData.justification}</dd>
+                </div>
+              )}
+
+              {/* Blocking issues */}
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wider text-muted">Blocking issues</dt>
+                <dd className="mt-1">
+                  {caseData.has_blocking_failure ? (
+                    <ul className="space-y-0.5">
+                      {caseData.validations
+                        .filter((v) => !v.passed && v.severity === "block")
+                        .map((v) => (
+                          <li key={v.rule} className="flex items-start gap-1.5 text-sm text-danger">
+                            <span aria-hidden="true" className="mt-0.5 shrink-0">✗</span>
+                            <span>{v.detail ?? v.rule}</span>
+                          </li>
+                        ))}
+                      {caseData.validations.filter((v) => !v.passed && v.severity === "block").length === 0 &&
+                        caseData.reason_code && (
+                          <li className="flex items-start gap-1.5 text-sm text-danger">
+                            <span aria-hidden="true" className="mt-0.5 shrink-0">✗</span>
+                            <span className="font-mono">{caseData.reason_code}</span>
+                          </li>
+                        )}
+                    </ul>
+                  ) : (
+                    <span className="text-sm text-muted">None</span>
+                  )}
+                </dd>
+              </div>
+
+              {/* Next action */}
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wider text-muted">Next action</dt>
+                <dd className="mt-1 text-sm">{nextActionLabel(caseData.decision, caseData.status)}</dd>
+              </div>
+            </dl>
+
             {caseData.requires_dual_approval && (
               <p
-                className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning"
+                className="mt-4 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning"
                 role="note"
               >
                 <span aria-hidden="true">⚠</span> Urgent payment — second approver required

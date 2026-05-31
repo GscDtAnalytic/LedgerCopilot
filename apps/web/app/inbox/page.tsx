@@ -11,6 +11,7 @@ import type { Route } from "next";
 import { api, type CasesListResponse } from "@/lib/api";
 import { SLABadge } from "@/components/SLABadge";
 import { StatusBadge } from "@/components/StatusBadge";
+import { UploadForm } from "@/components/UploadForm";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,7 @@ export default async function InboxPage({ searchParams }: PageProps) {
             )}
           </p>
         </div>
+        <UploadForm />
       </div>
 
       {/* Filters — URL-driven for shareability */}
@@ -83,7 +85,7 @@ export default async function InboxPage({ searchParams }: PageProps) {
           >
             All statuses
           </Link>
-          {["in_human_review", "auto_approved", "rejected", "closed"].map((s) => (
+          {["in_human_review", "auto_approved", "rejected", "closed", "received"].map((s) => (
             <Link
               key={s}
               href={filterHref("status", s)}

@@ -9,7 +9,8 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getToken, getCurrentUser } from "@/lib/auth";
 
 interface Props {
   caseId: string;
@@ -22,6 +23,12 @@ export function ReviewActions({ caseId }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [canApproveReject, setCanApproveReject] = useState(false);
+
+  useEffect(() => {
+    const role = getCurrentUser()?.role;
+    setCanApproveReject(role === "approver" || role === "admin");
+  }, []);
 
   async function submit(
     action: "approve" | "reject" | "edit" | "request_context" | "resend_to_stage",
@@ -31,9 +38,13 @@ export function ReviewActions({ caseId }: Props) {
     setLoading(action);
     setError(null);
     try {
+      const token = getToken();
       const res = await fetch(`${BASE}/api/v1/cases/${caseId}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           action,
           note: note ?? null,
@@ -61,26 +72,30 @@ export function ReviewActions({ caseId }: Props) {
         </p>
       )}
 
-      <button
-        onClick={() => submit("approve")}
-        disabled={loading !== null}
-        aria-busy={loading === "approve"}
-        className="w-full rounded-md border border-success bg-success px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {loading === "approve" ? "Approving…" : "Approve"}
-      </button>
+      {canApproveReject && (
+        <>
+          <button
+            onClick={() => submit("approve")}
+            disabled={loading !== null}
+            aria-busy={loading === "approve"}
+            className="w-full rounded-md border border-success bg-success px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading === "approve" ? "Approving…" : "Approve"}
+          </button>
 
-      <button
-        onClick={() => {
-          const note = window.prompt("Rejection reason (optional):");
-          void submit("reject", note ?? undefined);
-        }}
-        disabled={loading !== null}
-        aria-busy={loading === "reject"}
-        className="w-full rounded-md border border-danger px-4 py-2.5 text-sm font-medium text-danger transition-colors duration-fast ease-standard hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {loading === "reject" ? "Rejecting…" : "Reject"}
-      </button>
+          <button
+            onClick={() => {
+              const note = window.prompt("Rejection reason (optional):");
+              void submit("reject", note ?? undefined);
+            }}
+            disabled={loading !== null}
+            aria-busy={loading === "reject"}
+            className="w-full rounded-md border border-danger px-4 py-2.5 text-sm font-medium text-danger transition-colors duration-fast ease-standard hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading === "reject" ? "Rejecting…" : "Reject"}
+          </button>
+        </>
+      )}
 
       <button
         onClick={() => {
