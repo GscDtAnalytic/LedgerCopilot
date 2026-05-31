@@ -41,6 +41,13 @@ _CRITICAL = ["total_amount", "tax_id_cnpj", "document_number"]
 _K = 3
 _K_QUARANTINE = 1  # k=1 in quarantine mode; determinism > diversity
 
+# Standard-mode generation defaults. A DB prompt version may override these
+# (apps/api/services/prompts.get_active_prompt_config); when its columns are NULL
+# these defaults apply, preserving today's behaviour.
+DEFAULT_TEMPERATURE = 1.0  # temperature=1.0 gives Self-Consistency diversity across k runs
+DEFAULT_MAX_TOKENS = 512
+DEFAULT_K = _K  # Self-Consistency fan-out (public alias of _K for config defaults)
+
 
 def _values_agree(vals: list[Any]) -> bool:
     """True if at least 2 of k values are equal (after normalisation)."""
@@ -69,6 +76,12 @@ def _reconcile(runs: list[ExtractionOutput]) -> tuple[ExtractionOutput, list[str
     """
     merged = runs[0].model_copy(deep=True)
     low_agreement: list[str] = []
+
+    # Self-Consistency needs >=2 samples to vote. With a single run (k=1: quarantine
+    # mode, or a version tuned to k=1) there is no agreement signal to apply, so accept
+    # the run as-is rather than nulling every critical field for lack of a second vote.
+    if len(runs) < 2:
+        return merged, low_agreement
 
     for field_name in _CRITICAL:
         raw_vals = [getattr(run, field_name) for run in runs]
@@ -105,18 +118,27 @@ async def run_extraction(
     trace_id: str,
     document_text: str,
     system_override: str | None = None,
+    model: str | None = None,
+    temperature: float = DEFAULT_TEMPERATURE,
+    top_p: float | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    k: int = _K,
     quarantine_mode: bool = False,
     quarantine_model: str | None = None,
 ) -> tuple[ExtractionOutput, ModelTrace, list[str], bool]:
     """Extract fields from document text.
 
     Standard mode (quarantine_mode=False):
-      SC k=3, temperature=1.0, prompt_alias="dev", system_override honoured.
+      SC fan-out of k runs, prompt_alias="dev", system_override honoured. The
+      generation config (model/temperature/top_p/max_tokens/k) comes from the active
+      DB prompt version — defaults preserve the historic k=3, temperature=1.0,
+      max_tokens=512 behaviour when the version leaves those columns NULL.
 
     Quarantine mode (quarantine_mode=True):
       SC k=1, temperature=0.0, prompt_alias="quarantine", system_override BLOCKED.
       The quarantine LLM uses a dedicated prompt that explicitly forbids following
-      document instructions and cannot be weakened via the DB prompt admin.
+      document instructions and cannot be weakened via the DB prompt admin; its
+      config is fixed and ignores the per-version overrides above.
       quarantine_model overrides the model (e.g. Haiku — cheaper, sufficient for extraction).
 
     Returns:
@@ -143,8 +165,8 @@ async def run_extraction(
             )
         ]
     else:
-        # Standard: k=3 with temperature=1.0 for Self-Consistency diversity.
-        # AsyncAnthropic makes these truly parallel.
+        # Standard: k runs (default 3) at the version's temperature for Self-Consistency
+        # diversity. AsyncAnthropic makes these truly parallel.
         tasks = [
             gateway_call(
                 case_id=case_id,
@@ -153,11 +175,13 @@ async def run_extraction(
                 user_message=user_msg,
                 response_model=ExtractionOutput,
                 stage="extraction",
-                max_tokens=512,
-                temperature=1.0,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
                 system_override=system_override,
             )
-            for _ in range(_K)
+            for _ in range(max(1, k))
         ]
 
     results: list[tuple[ExtractionOutput, ModelTrace]] = await asyncio.gather(*tasks)

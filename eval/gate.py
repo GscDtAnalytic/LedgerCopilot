@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # Thresholds as named constants — same values used in the promote API endpoint.
@@ -36,6 +37,165 @@ MAX_FALSE_AUTO_APPROVE_DELTA = 0.01  # +1pp
 MAX_COST_PER_DOC_DELTA_RATIO = 0.20  # +20%
 MIN_CRITICAL_FIELD_ACCURACY = 0.85  # total_amount + tax_id_cnpj + document_number
 MAX_DECISION_ACCURACY_DROP = 0.05  # -5pp
+
+# Negligible movement below which a metric is "unchanged" (avoids warning-noise on
+# floating-point rounding). Rates/accuracies are fractions; cost is in USD.
+_EPSILON = 1e-6
+
+
+@dataclass
+class MetricVerdict:
+    """One metric compared candidate-vs-baseline, for the UI compare table.
+
+    `gated` distinguishes the four promotion gate rules from informational metrics
+    (supplier_name_accuracy, p95_latency_ms, exact_field_accuracy) which are shown
+    but never block — see for why supplier_name is informational.
+    `severity` is "good" | "warning" | "fail": a gated metric that breaches its
+    threshold is "fail"; any metric that regressed without breaching is "warning".
+    """
+
+    key: str
+    label: str
+    candidate: float
+    baseline: float | None
+    delta: float | None
+    threshold_label: str
+    gated: bool
+    passed: bool
+    severity: str  # "good" | "warning" | "fail"
+
+
+# Per-metric direction: True when a HIGHER value is better (accuracies); False when
+# a LOWER value is better (false-approve rate, cost, latency).
+_HIGHER_IS_BETTER = {
+    "false_auto_approve_rate": False,
+    "avg_cost_per_doc": False,
+    "p95_latency_ms": False,
+    "critical_field_accuracy": True,
+    "decision_accuracy": True,
+    "supplier_name_accuracy": True,
+    "exact_field_accuracy": True,
+}
+
+
+def _regressed(key: str, delta: float | None) -> bool:
+    """True when the candidate moved in the worse direction beyond epsilon."""
+    if delta is None or abs(delta) <= _EPSILON:
+        return False
+    return delta < 0 if _HIGHER_IS_BETTER.get(key, True) else delta > 0
+
+
+def compare_metrics(candidate: dict, baseline: dict) -> list[MetricVerdict]:
+    """Compare a candidate scorecard against a baseline, metric by metric.
+
+    Single source of truth for the compare/gate UI and the promote endpoint —
+    `run_gate` (CLI) is asserted to agree with this in tests. Gate verdicts use the
+    same thresholds as `run_gate`; informational metrics are reported but never fail.
+    """
+    verdicts: list[MetricVerdict] = []
+
+    def _add(
+        key: str,
+        label: str,
+        threshold_label: str,
+        *,
+        gated: bool,
+        passed: bool,
+        baseline_default: float = 0.0,
+    ) -> None:
+        cand = float(candidate.get(key, 0.0))
+        base = baseline.get(key)
+        base_f = float(base) if base is not None else baseline_default
+        delta = cand - base_f
+        if not passed:
+            severity = "fail"
+        elif _regressed(key, delta):
+            severity = "warning"
+        else:
+            severity = "good"
+        verdicts.append(
+            MetricVerdict(
+                key=key,
+                label=label,
+                candidate=cand,
+                baseline=base_f,
+                delta=delta,
+                threshold_label=threshold_label,
+                gated=gated,
+                passed=passed,
+                severity=severity,
+            )
+        )
+
+    # ── Gate rules (block promotion) ───────────────────────────────────────────
+    cand_far = float(candidate.get("false_auto_approve_rate", 0.0))
+    base_far = float(baseline.get("false_auto_approve_rate", 0.0))
+    _add(
+        "false_auto_approve_rate",
+        "False auto-approve rate",
+        "<= baseline + 1pp",
+        gated=True,
+        passed=cand_far <= base_far + MAX_FALSE_AUTO_APPROVE_DELTA,
+    )
+
+    cand_cost = float(candidate.get("avg_cost_per_doc", 0.0))
+    base_cost = float(baseline.get("avg_cost_per_doc", 0.0))
+    cost_ok = not (base_cost > 0 and cand_cost > base_cost * (1 + MAX_COST_PER_DOC_DELTA_RATIO))
+    _add(
+        "avg_cost_per_doc",
+        "Avg cost / doc",
+        "<= baseline x 1.20",
+        gated=True,
+        passed=cost_ok,
+    )
+
+    cand_cfa = float(candidate.get("critical_field_accuracy", 0.0))
+    _add(
+        "critical_field_accuracy",
+        "Critical field accuracy",
+        "≥ 85%",
+        gated=True,
+        passed=cand_cfa >= MIN_CRITICAL_FIELD_ACCURACY,
+    )
+
+    cand_da = float(candidate.get("decision_accuracy", 0.0))
+    base_da = float(baseline.get("decision_accuracy", 0.0))
+    _add(
+        "decision_accuracy",
+        "Decision accuracy",
+        ">= baseline - 5pp",
+        gated=True,
+        passed=cand_da >= base_da - MAX_DECISION_ACCURACY_DROP,
+    )
+
+    # ── Informational (shown, never block) ─────────────────────────────────────
+    _add(
+        "supplier_name_accuracy",
+        "Supplier name accuracy",
+        "informational",
+        gated=False,
+        passed=True,
+    )
+    _add(
+        "exact_field_accuracy",
+        "Exact field accuracy",
+        "informational",
+        gated=False,
+        passed=True,
+    )
+    _add(
+        "p95_latency_ms",
+        "p95 latency",
+        "informational",
+        gated=False,
+        passed=True,
+    )
+    return verdicts
+
+
+def metric_verdicts_to_dicts(verdicts: list[MetricVerdict]) -> list[dict]:
+    """Serialise MetricVerdict list (for the API layer)."""
+    return [asdict(v) for v in verdicts]
 
 
 def _load(path: str | Path) -> dict:

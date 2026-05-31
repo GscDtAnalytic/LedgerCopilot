@@ -40,7 +40,7 @@ from apps.api.models import (
     ReconciliationResult,
     ValidationResult,
 )
-from apps.api.services.prompts import get_active_system_text
+from apps.api.services.prompts import get_active_prompt_config
 from apps.api.services.reference import (
     active_cost_center_codes,
     lookup_payment_total,
@@ -50,7 +50,12 @@ from apps.api.services.reference import (
 from apps.api.services.tracing import persist_trace
 from arq import cron
 from arq.connections import RedisSettings
-from packages.agents.extraction import run_extraction
+from packages.agents.extraction import (
+    DEFAULT_K,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    run_extraction,
+)
 from packages.agents.intake import run_intake
 from packages.agents.review_assistant import ReviewSignals, build_explanation
 from packages.domain.business_key import compute_business_key
@@ -266,9 +271,16 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
         for w in ocr_result.warnings:
             logger.warning("ocr warning case_id=%s: %s", case_id, w)
 
-        # Resolve the active prompt from DB (falls back to in-process registry).
-        # Falls back to None → ai_gateway uses its in-process registry.
-        system_override = await get_active_system_text("production", session)
+        # Resolve the active prompt + generation config from DB (falls back to
+        # in-process registry). Priority: production → staging → dev → registry.
+        # This lets a staging version be tested live before production is promoted,
+        # and makes per-version model/temperature/top_p/max_tokens/k take effect.
+        prompt_config = (
+            await get_active_prompt_config("production", session)
+            or await get_active_prompt_config("staging", session)
+            or await get_active_prompt_config("dev", session)
+        )
+        system_override = prompt_config.system_text if prompt_config is not None else None
 
         # ── S1: CLASSIFY (Intake agent — type + language + parse + quality) ────
         if CaseStatus(case.status) == CaseStatus.RECEIVED:
@@ -315,9 +327,20 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
                 case_id=case.id,
                 trace_id=case.trace_id,
                 document_text=doc_text,
-                # Standard mode: system_override from DB.
-                # Quarantine mode: system_override blocked inside run_extraction.
+                # Standard mode: system_override + generation config from the active
+                # DB version (coalesced defaults when None → unchanged behaviour).
+                # Quarantine mode: system_override and these overrides are ignored
+                # inside run_extraction (the quarantine prompt/config is immutable).
                 system_override=system_override,
+                model=prompt_config.model if prompt_config is not None else None,
+                temperature=(
+                    prompt_config.temperature if prompt_config is not None else DEFAULT_TEMPERATURE
+                ),
+                top_p=prompt_config.top_p if prompt_config is not None else None,
+                max_tokens=(
+                    prompt_config.max_tokens if prompt_config is not None else DEFAULT_MAX_TOKENS
+                ),
+                k=prompt_config.k if prompt_config is not None else DEFAULT_K,
                 quarantine_mode=settings.dual_llm_enabled,
                 quarantine_model=settings.quarantine_model if settings.dual_llm_enabled else None,
             )

@@ -99,6 +99,7 @@ async def gateway_call(
     model: str | None = None,
     max_tokens: int = 1024,
     temperature: float = 0.0,
+    top_p: float | None = None,
     system_override: str | None = None,
 ) -> tuple[T, ModelTrace]:
     """Call the LLM and return a validated Pydantic instance + trace.
@@ -121,11 +122,18 @@ async def gateway_call(
         prompt_version_id=prompt_version.id,
         model=effective_model,
         stage=stage,
+        # Capture generation params so a trace is reproducible (which config produced
+        # this run). Kept in `extra` to avoid widening the model_runs schema.
+        extra={"temperature": temperature, "top_p": top_p, "max_tokens": max_tokens},
     )
 
     client = _get_client()
     if client is None:
         return await _stub_response(user_message, response_model, trace, temperature=temperature)
+
+    # top_p is only sent when explicitly set — omitting it uses the provider default,
+    # and Anthropic recommends tuning either temperature or top_p, not both.
+    extra_params: dict[str, Any] = {} if top_p is None else {"top_p": top_p}
 
     start = time.monotonic()
     try:
@@ -136,6 +144,7 @@ async def gateway_call(
                 temperature=temperature,
                 system=system_text,
                 messages=[{"role": "user", "content": user_message}],
+                **extra_params,
             )
         raw = message.content[0].text
         in_tok = message.usage.input_tokens
@@ -160,6 +169,7 @@ async def gateway_call(
                 model=_FALLBACK_MODEL,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                top_p=top_p,
                 system_override=system_override,
             )
         raise RuntimeError(f"gateway: all models failed — {exc}") from exc

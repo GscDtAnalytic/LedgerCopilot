@@ -12,7 +12,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from packages.agents.extraction import run_extraction
+from packages.agents.extraction import (
+    DEFAULT_K,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    run_extraction,
+)
 from packages.domain.decisions import decide
 from packages.domain.entities import FieldValue
 from packages.policy.engine import run_policy
@@ -21,6 +26,27 @@ from packages.validation.engine import ValidationContext, run_validations
 _DATASET_ROOT = Path(__file__).parent / "dataset"
 
 CRITICAL_FIELDS = ["supplier_name", "tax_id_cnpj", "total_amount", "document_number"]
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    """Generation config a candidate version is evaluated under.
+
+    Eval must run with the *version's* config, not registry defaults — otherwise a
+    version's scorecard does not reflect the version and comparing two versions
+    compares noise. Defaults reproduce the historic behaviour (registry prompt,
+    temperature=1.0, max_tokens=512, k=3) so the CLI is unchanged when no config
+    is supplied.
+    """
+
+    system_text: str | None = None
+    model: str | None = None
+    temperature: float = DEFAULT_TEMPERATURE
+    top_p: float | None = None
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    k: int = DEFAULT_K
+
+
 # Fields the pipeline actually controls (SC k=3 + overall_confidence weighting).
 # Gate uses these, not CRITICAL_FIELDS.
 _DOMAIN_CRITICAL = ["total_amount", "tax_id_cnpj", "document_number"]
@@ -103,7 +129,7 @@ def _field_matches(extracted: FieldValue | None, expected: object) -> bool:
     return str(extracted.value).strip().lower() == str(expected).strip().lower()
 
 
-async def _run_fixture(fixture: dict) -> FixtureResult:
+async def _run_fixture(fixture: dict, config: EvalConfig) -> FixtureResult:
     """Run extraction + validation + policy on one fixture and compare to expected."""
     start = time.monotonic()
     doc_text = fixture["document_text"]
@@ -111,11 +137,18 @@ async def _run_fixture(fixture: dict) -> FixtureResult:
     fixture_id = fixture["id"]
     slice_name = fixture["slice"]
 
-    # Run extraction (injection_suspected propagated for accurate eval of adversarial slice)
+    # Run extraction under the candidate version's config (injection_suspected
+    # propagated for accurate eval of the adversarial slice).
     fields, trace, _, injection_suspected = await run_extraction(
         case_id=fixture_id,
         trace_id=fixture_id,
         document_text=doc_text,
+        system_override=config.system_text,
+        model=config.model,
+        temperature=config.temperature,
+        top_p=config.top_p,
+        max_tokens=config.max_tokens,
+        k=config.k,
     )
 
     latency_ms = (time.monotonic() - start) * 1000
@@ -180,14 +213,21 @@ async def _run_fixture(fixture: dict) -> FixtureResult:
 async def run_eval(
     dataset_root: Path | None = None,
     prompt_version_id: str = "dev",
+    config: EvalConfig | None = None,
 ) -> Scorecard:
-    """Run all fixtures and compute a Scorecard."""
+    """Run all fixtures and compute a Scorecard.
+
+    `config` carries the candidate version's generation config so the scorecard is
+    faithful to that version. When None, the historic registry/default
+    behaviour is used.
+    """
     root = dataset_root or _DATASET_ROOT
+    cfg = config or EvalConfig()
     fixtures = _load_fixtures(root)
     if not fixtures:
         raise FileNotFoundError(f"No fixture JSON files found under {root}")
 
-    results = await asyncio.gather(*[_run_fixture(f) for f in fixtures])
+    results = await asyncio.gather(*[_run_fixture(f, cfg) for f in fixtures])
 
     n = len(results)
     slices: dict[str, int] = {}

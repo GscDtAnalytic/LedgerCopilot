@@ -21,6 +21,7 @@
   "missing_critical_fields_rate": 0.125,
   "false_auto_approve_rate": 0.025,
   "supplier_name_accuracy": 0.625,
+  "critical_field_accuracy": 0.65,
   "decision_accuracy": 0.625,
   "avg_cost_per_doc": 0.0,
   "p95_latency_ms": 6.1,
