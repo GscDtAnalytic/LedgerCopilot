@@ -86,34 +86,55 @@ export default async function DashboardPage() {
             <h2 id="kpi-heading" className="sr-only">
               Key performance indicators
             </h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <KpiCard
-                label="Total cases"
-                value={data.total_cases.toLocaleString()}
-                sub={`${data.cases_this_week} this week`}
-              />
-              <KpiCard
-                label="Pending review"
-                value={data.pending_review.toString()}
-                sub="Awaiting human decision"
-              />
-              <KpiCard
-                label="Avg confidence"
-                value={
-                  data.avg_confidence !== null
-                    ? `${(data.avg_confidence * 100).toFixed(1)}`
-                    : "—"
-                }
-                unit={data.avg_confidence !== null ? "%" : undefined}
-                sub="Extraction field avg"
-              />
-              <KpiCard
-                label="Cost / doc"
-                value={data.avg_cost_per_doc_usd.toFixed(5)}
-                unit="USD"
-                sub={`Total: $${data.total_cost_usd.toFixed(4)}`}
-              />
-            </div>
+            {(() => {
+              const totalDecided = data.decision_breakdown.reduce((s, d) => s + d.count, 0);
+              const autoRow = data.decision_breakdown.find((d) => d.decision === "auto_approve");
+              const autoApprovalRate =
+                totalDecided > 0 && autoRow ? autoRow.count / totalDecided : null;
+
+              return (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <KpiCard
+                    label="Total cases"
+                    value={data.total_cases.toLocaleString()}
+                    sub={`${data.cases_this_week} this week`}
+                  />
+                  <KpiCard
+                    label="Pending review"
+                    value={data.pending_review.toString()}
+                    sub="Awaiting human decision"
+                  />
+                  <KpiCard
+                    label="Avg confidence"
+                    value={
+                      data.avg_confidence !== null
+                        ? `${(data.avg_confidence * 100).toFixed(1)}`
+                        : "—"
+                    }
+                    unit={data.avg_confidence !== null ? "%" : undefined}
+                    sub="Extraction field avg"
+                  />
+                  <KpiCard
+                    label="Cost / doc"
+                    value={data.avg_cost_per_doc_usd.toFixed(5)}
+                    unit="USD"
+                    sub={`Total: $${data.total_cost_usd.toFixed(4)}`}
+                  />
+                  <KpiCard
+                    label="Auto-approval rate"
+                    value={autoApprovalRate !== null ? (autoApprovalRate * 100).toFixed(1) : "—"}
+                    unit={autoApprovalRate !== null ? "%" : undefined}
+                    sub={autoRow ? `${autoRow.count.toLocaleString()} cases` : "No decisions yet"}
+                  />
+                  <KpiCard
+                    label="Human override rate"
+                    value={data.human_override_rate != null ? (data.human_override_rate * 100).toFixed(1) : "—"}
+                    unit={data.human_override_rate != null ? "%" : undefined}
+                    sub={data.human_override_count != null ? `${data.human_override_count.toLocaleString()} overridden` : "Restart API to load"}
+                  />
+                </div>
+              );
+            })()}
           </section>
 
           {/* Decision breakdown */}

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import CurrentUser, get_current_user
 from apps.api.database import get_session
+from apps.api.models.audit import AuditEvent
 from apps.api.models.case import Case
 from apps.api.models.extraction import ExtractionResult
 from apps.api.models.model_run import ModelRun
@@ -42,6 +43,8 @@ class DashboardResponse(BaseModel):
     avg_cost_per_doc_usd: float
     decision_breakdown: list[DecisionBreakdown]
     status_breakdown: list[StatusBreakdown]
+    human_override_rate: float
+    human_override_count: int
 
 
 @router.get("", response_model=DashboardResponse)
@@ -109,6 +112,27 @@ async def get_dashboard(
     total_cost = await session.scalar(select(func.sum(ModelRun.cost_usd))) or 0.0
     avg_cost = (total_cost / total) if total > 0 else 0.0
 
+    # Human override rate: cases that hit in_human_review and got a terminal human decision.
+    # Pass select() directly to in_() — the correct SQLAlchemy 2.0 pattern for IN subqueries.
+    human_override_count = (
+        await session.scalar(
+            select(func.count(Case.id)).where(
+                org_filter,
+                Case.status.in_(["approved", "rejected"]),
+                Case.id.in_(
+                    select(AuditEvent.case_id)
+                    .where(
+                        AuditEvent.organization_id == user.org_id,
+                        AuditEvent.to_status == "in_human_review",
+                    )
+                    .distinct()
+                ),
+            )
+        )
+        or 0
+    )
+    human_override_rate = round(human_override_count / (total or 1), 4)
+
     return DashboardResponse(
         total_cases=total,
         cases_this_week=cases_this_week,
@@ -118,4 +142,6 @@ async def get_dashboard(
         avg_cost_per_doc_usd=round(avg_cost, 6),
         decision_breakdown=decision_breakdown,
         status_breakdown=status_breakdown,
+        human_override_rate=human_override_rate,
+        human_override_count=human_override_count,
     )
