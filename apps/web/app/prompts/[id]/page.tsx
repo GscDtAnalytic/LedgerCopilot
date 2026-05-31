@@ -1,64 +1,56 @@
 /**
- * Prompt version detail — scorecard metrics + full system text for review.
+ * Prompt version detail — changelog + promotion verdict + lifecycle/aliases + config.
  *
- * This is the "version compare" surface: shows each metric against the
- * production baseline thresholds. A blocked metric is highlighted in red.
- * Analysts can see exactly why a promotion is blocked.
+ * The verdict (which gate rules pass/fail, against the live production baseline) is
+ * computed by the API (GET /prompts/{id}/gate), which reuses eval.gate. The page does
+ * NOT re-implement gate thresholds — the old version did, and drifted from the real
+ * gate.
  */
 
 import Link from "next/link";
+import type { Route } from "next";
 import { notFound } from "next/navigation";
-import { api } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { api, type GateVerdict, type PromptVersion } from "@/lib/api";
+import { formatDate, formatMetricValue, lifecycleStatus, severityMeta } from "@/lib/format";
+import { PromoteButton } from "@/components/PromoteButton";
+import { DeletePromptButton } from "@/components/DeletePromptButton";
+import { RunEvalButton } from "@/components/RunEvalButton";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
-const GATE_RULES = [
-  {
-    key: "false_auto_approve_rate",
-    label: "False auto-approve rate",
-    format: (v: number) => `${(v * 100).toFixed(2)}%`,
-    passes: (v: number) => v <= 0.01,
-    threshold: "≤ 1%",
-  },
-  {
-    key: "supplier_name_accuracy",
-    label: "Supplier name accuracy",
-    format: (v: number) => `${(v * 100).toFixed(1)}%`,
-    passes: (v: number) => v >= 0.97,
-    threshold: "≥ 97%",
-  },
-  {
-    key: "decision_accuracy",
-    label: "Decision accuracy",
-    format: (v: number) => `${(v * 100).toFixed(1)}%`,
-    passes: (v: number) => v >= 0.0, // relative — no absolute threshold
-    threshold: "baseline − 5pp",
-  },
-  {
-    key: "avg_cost_per_doc",
-    label: "Avg cost / doc",
-    format: (v: number) => `$${v.toFixed(6)}`,
-    passes: (v: number) => v >= 0.0,
-    threshold: "baseline × 1.20",
-  },
-  {
-    key: "p95_latency_ms",
-    label: "p95 latency",
-    format: (v: number) => `${v.toFixed(0)} ms`,
-    passes: (v: number) => v >= 0.0,
-    threshold: "informational",
-  },
-] as const;
+const CONFIG_FIELDS: { key: "model" | "temperature" | "top_p" | "max_tokens" | "k"; label: string }[] = [
+  { key: "model", label: "Model" },
+  { key: "temperature", label: "Temperature" },
+  { key: "top_p", label: "top_p" },
+  { key: "max_tokens", label: "Max tokens" },
+  { key: "k", label: "Self-consistency k" },
+];
 
 export default async function PromptDetailPage({ params }: Props) {
   const { id } = await params;
   const pv = await api.prompts.get(id).catch(() => null);
   if (!pv) notFound();
 
-  const sc = pv.scorecard as Record<string, number | object> | null;
+  const verdict: GateVerdict | null = await api.prompts.gate(id).catch(() => null);
+  // Resolve the parent version (Based on) for a human-readable changelog link.
+  const parent: PromptVersion | null = pv.based_on
+    ? await api.prompts.get(pv.based_on).catch(() => null)
+    : null;
+
+  const status = lifecycleStatus(pv.alias, !!verdict?.has_scorecard, !!verdict?.passed);
+
+  const gatedMetrics = verdict?.metrics.filter((m) => m.gated) ?? [];
+  const infoMetrics = verdict?.metrics.filter((m) => !m.gated) ?? [];
+  const canCompare = pv.alias !== "production";
+  const hasChangelog = !!(pv.based_on || pv.change_summary || pv.expected_outcome);
+  // Pre-select the parent as the compare baseline when present.
+  const compareHref = (
+    pv.based_on
+      ? `/prompts/compare?a=${pv.id}&b=${pv.based_on}&baseline=b`
+      : `/prompts/compare?a=${pv.id}`
+  ) as Route;
 
   return (
     <main id="main" className="mx-auto max-w-4xl px-6 py-12">
@@ -75,83 +67,193 @@ export default async function PromptDetailPage({ params }: Props) {
             <h1 className="text-xl font-semibold">{pv.name}</h1>
             <p className="mt-1 font-mono text-xs text-muted">{pv.id}</p>
           </div>
-          {pv.alias && (
-            <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium uppercase">
-              {pv.alias}
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              title={status.label}
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium capitalize ${status.badge}`}
+            >
+              <span aria-hidden="true">{status.icon}</span>
+              {status.label}
             </span>
-          )}
+            {canCompare && (
+              <Link
+                href={compareHref}
+                className="rounded-md border border-border bg-surface px-3 py-1 text-xs font-medium transition-colors hover:bg-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+              >
+                {pv.based_on ? "Compare vs parent" : "Compare vs production"}
+              </Link>
+            )}
+            <DeletePromptButton promptId={pv.id} currentAlias={pv.alias} />
+          </div>
         </div>
         {pv.description && <p className="mt-3 text-sm text-muted">{pv.description}</p>}
         <p className="mt-1 text-xs text-muted">Created {formatDate(pv.created_at)}</p>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_20rem]">
+      {/* Changelog — what changed vs the parent (item 4). Only when recorded. */}
+      {hasChangelog && (
+        <section
+          aria-labelledby="changelog-heading"
+          className="mb-8 rounded-lg border border-border bg-surface p-4"
+        >
+          <h2 id="changelog-heading" className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Changelog
+          </h2>
+          <dl className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <dt className="w-32 shrink-0 text-muted">Based on</dt>
+              <dd>
+                {pv.based_on ? (
+                  parent ? (
+                    <Link href={`/prompts/${parent.id}`} className="font-medium hover:underline">
+                      {parent.name}
+                      {parent.alias ? ` (${parent.alias})` : ""}
+                    </Link>
+                  ) : (
+                    <span className="font-mono text-xs text-muted">{pv.based_on}</span>
+                  )
+                ) : (
+                  <span className="text-muted">— new lineage</span>
+                )}
+              </dd>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-2">
+              <dt className="w-32 shrink-0 text-muted">Change summary</dt>
+              <dd>{pv.change_summary || <span className="text-muted">—</span>}</dd>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-2">
+              <dt className="w-32 shrink-0 text-muted">Expected outcome</dt>
+              <dd>{pv.expected_outcome || <span className="text-muted">—</span>}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
+      <div className="grid gap-8 lg:grid-cols-[1fr_18rem]">
         {/* Scorecard / gate check */}
         <section aria-labelledby="scorecard-heading">
-          <h2 id="scorecard-heading" className="mb-4 text-sm font-semibold uppercase tracking-wider">
-            Scorecard vs promotion gate rules
+          <h2 id="scorecard-heading" className="mb-2 text-sm font-semibold uppercase tracking-wider">
+            Promotion gate
           </h2>
-
-          {!sc ? (
-            <p className="text-sm text-muted">
-              No scorecard yet. Run eval.run to generate one:
-              <code className="ml-2 rounded bg-surface px-2 py-0.5 text-xs">
-                uv run python -m eval.run --prompt-version {pv.id} --out scorecard.json
-              </code>
+          {verdict?.baseline_id ? (
+            <p className="mb-4 text-xs text-muted">
+              Compared against baseline <span className="font-mono">{verdict.baseline_id}</span>.
             </p>
           ) : (
-            <ul className="space-y-2" aria-label="Gate metrics">
-              {GATE_RULES.map(({ key, label, format, passes, threshold }) => {
-                const raw = sc[key];
-                const value = typeof raw === "number" ? raw : null;
-                const ok = value === null ? true : passes(value);
-                return (
-                  <li
-                    key={key}
-                    className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm ${
-                      ok ? "border-border bg-surface" : "border-danger/40 bg-danger/5"
-                    }`}
-                  >
-                    <div>
-                      <span className={ok ? "" : "font-medium text-danger"}>{label}</span>
-                      <span className="ml-2 text-xs text-muted">({threshold})</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`font-mono font-medium ${ok ? "" : "text-danger"}`}>
-                        {value !== null ? format(value) : "—"}
-                      </span>
-                      <span
-                        aria-label={ok ? "Passes gate" : "Fails gate"}
-                        className={ok ? "text-success" : "text-danger"}
+            <p className="mb-4 text-xs text-muted">No production baseline yet — absolute rules only.</p>
+          )}
+
+          {!verdict?.has_scorecard ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted">No scorecard yet. Run the eval suite to generate one.</p>
+              <RunEvalButton promptId={pv.id} />
+              <p className="text-xs text-muted">
+                Or via CLI:{" "}
+                <code className="rounded bg-surface px-1.5 py-0.5">
+                  uv run python -m eval.run --prompt-version {pv.id} --post-scorecard {pv.id} --token $TOKEN
+                </code>
+              </p>
+            </div>
+          ) : (
+            <>
+              <ul className="space-y-2" aria-label="Gate metrics">
+                {gatedMetrics.map((m) => {
+                  const sev = severityMeta(m.severity);
+                  return (
+                    <li
+                      key={m.key}
+                      className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-sm ${
+                        m.passed ? "border-border bg-surface" : "border-danger/40 bg-danger/5"
+                      }`}
+                    >
+                      <div>
+                        <span className={m.passed ? "" : "font-medium text-danger"}>{m.label}</span>
+                        <span className="ml-2 text-xs text-muted">({m.threshold_label})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-mono font-medium ${m.passed ? "" : "text-danger"}`}>
+                          {formatMetricValue(m.key, m.candidate)}
+                        </span>
+                        <span aria-label={sev.label} className={sev.color}>
+                          {sev.icon}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Informational metrics — shown, never block (§13.1: labelled, not just dimmed). */}
+              {infoMetrics.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
+                    Informational — not gated
+                  </h3>
+                  <ul className="space-y-2" aria-label="Informational metrics">
+                    {infoMetrics.map((m) => (
+                      <li
+                        key={m.key}
+                        className="flex items-center justify-between rounded-md border border-border bg-surface/50 px-3 py-2 text-sm"
                       >
-                        {ok ? "✓" : "✗"}
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                        <span className="text-muted">{m.label}</span>
+                        <span className="font-mono">{formatMetricValue(m.key, m.candidate)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <RunEvalButton promptId={pv.id} />
+              </div>
+            </>
           )}
         </section>
 
-        {/* Field accuracy if available */}
-        {sc?.field_accuracy && typeof sc.field_accuracy === "object" && (
-          <section aria-labelledby="field-acc-heading" className="rounded-lg border border-border bg-surface p-4">
-            <h2 id="field-acc-heading" className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-              Field accuracy
+        <div className="space-y-6">
+          {/* Lifecycle & aliases — current alias + available promotions with reasons (item 1). */}
+          <section
+            aria-labelledby="alias-heading"
+            className="rounded-lg border border-border bg-surface p-4"
+          >
+            <h2 id="alias-heading" className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Lifecycle &amp; aliases
+            </h2>
+            <PromoteButton
+              promptId={pv.id}
+              currentAlias={pv.alias}
+              hasScorecard={!!verdict?.has_scorecard}
+              variant="full"
+            />
+          </section>
+
+          {/* Generation config — the full config that affects behaviour, not just text. */}
+          <section
+            aria-labelledby="config-heading"
+            className="rounded-lg border border-border bg-surface p-4"
+          >
+            <h2 id="config-heading" className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Generation config
             </h2>
             <dl className="space-y-2 text-sm">
-              {Object.entries(sc.field_accuracy as Record<string, number>).map(([field, acc]) => (
-                <div key={field} className="flex justify-between gap-4">
-                  <dt className="text-muted capitalize">{field.replace(/_/g, " ")}</dt>
-                  <dd className={`font-mono font-medium ${acc < 0.9 ? "text-warning" : ""}`}>
-                    {(acc * 100).toFixed(0)}%
-                  </dd>
-                </div>
-              ))}
+              {CONFIG_FIELDS.map(({ key, label }) => {
+                const value = pv[key];
+                return (
+                  <div key={key} className="flex justify-between gap-4">
+                    <dt className="text-muted">{label}</dt>
+                    <dd className="font-mono">
+                      {value === null || value === undefined ? (
+                        <span className="text-muted">default</span>
+                      ) : (
+                        String(value)
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
           </section>
-        )}
+        </div>
       </div>
     </main>
   );

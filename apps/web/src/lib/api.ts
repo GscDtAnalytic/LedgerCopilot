@@ -101,6 +101,52 @@ export interface PromptVersion {
   is_active: boolean;
   scorecard: Record<string, unknown> | null;
   created_at: string;
+  // Per-version generation config. null means "standard default".
+  model: string | null;
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
+  k: number | null;
+  // Changelog — what changed vs the parent version.
+  based_on: string | null;
+  change_summary: string | null;
+  expected_outcome: string | null;
+}
+
+/**
+ * One metric compared candidate-vs-baseline. Mirrors eval.gate.MetricVerdict on the
+ * server — the verdict/thresholds are computed there so the UI never duplicates gate
+ * logic (that duplication is what let the old screen gate on supplier_name).
+ */
+export interface MetricVerdict {
+  key: string;
+  label: string;
+  candidate: number;
+  baseline: number | null;
+  delta: number | null;
+  threshold_label: string;
+  gated: boolean;
+  passed: boolean;
+  severity: "good" | "warning" | "fail";
+}
+
+export interface GateVerdict {
+  candidate_id: string;
+  baseline_id: string | null;
+  has_scorecard: boolean;
+  passed: boolean;
+  metrics: MetricVerdict[];
+  violations: string[];
+}
+
+export interface CompareResult {
+  a: PromptVersion;
+  b: PromptVersion;
+  baseline: "a" | "b";
+  a_has_scorecard: boolean;
+  b_has_scorecard: boolean;
+  system_text_changed: boolean;
+  metrics: MetricVerdict[];
 }
 
 // Phase 3: monitoring
@@ -148,6 +194,8 @@ export interface DashboardData {
   avg_cost_per_doc_usd: number;
   decision_breakdown: DecisionBreakdown[];
   status_breakdown: StatusBreakdown[];
+  human_override_rate: number;
+  human_override_count: number;
 }
 
 // Phase 4: email intake
@@ -216,6 +264,26 @@ export const api = {
   prompts: {
     list: () => apiFetch<PromptVersion[]>("/api/v1/prompts"),
     get: (id: string) => apiFetch<PromptVersion>(`/api/v1/prompts/${id}`),
+    gate: (id: string) => apiFetch<GateVerdict>(`/api/v1/prompts/${id}/gate`),
+    compare: (a: string, b?: string, baseline: "a" | "b" = "b") => {
+      const params = new URLSearchParams({ a, baseline });
+      if (b) params.set("b", b);
+      return apiFetch<CompareResult>(`/api/v1/prompts/compare?${params.toString()}`);
+    },
+    promote: (id: string, alias: string) =>
+      apiFetch<PromptVersion>(`/api/v1/prompts/${id}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias }),
+      }),
+    writeScorecard: (id: string, scorecard: Record<string, unknown>) =>
+      apiFetch<PromptVersion>(`/api/v1/prompts/${id}/scorecard`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scorecard }),
+      }),
+    delete: (id: string) =>
+      apiFetch<void>(`/api/v1/prompts/${id}`, { method: "DELETE" }),
   },
   monitoring: {
     get: () => apiFetch<MonitoringData>("/api/v1/monitoring"),
