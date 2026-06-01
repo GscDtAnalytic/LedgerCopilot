@@ -64,7 +64,12 @@ async def upload_document(
     # Store via the configured backend (local dev; GCS/S3 in prod via storage_backend setting).
     # Bronze immutability: LocalBackend.put() is a no-op if the file already exists.
     stored_name = f"{file_hash[:8]}_{file.filename or 'document'}"
-    storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+    storage = get_storage(
+        settings.storage_backend,
+        settings.storage_local_dir,
+        settings.storage_gcs_bucket,
+        settings.storage_gcs_prefix,
+    )
     storage_path = storage.put(stored_name, content)
 
     # --- Create Document + Case + AuditEvent in one transaction ---

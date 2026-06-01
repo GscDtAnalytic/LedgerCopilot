@@ -46,9 +46,13 @@ class Settings(BaseSettings):
 
     # Storage backend.
     # storage_backend="local" writes to storage_local_dir (dev default).
-    # Future values: "gcs", "s3" — add backends in packages/storage/factory.py.
+    # storage_backend="gcs" persists the bronze layer in a GCS bucket (prod).
     storage_backend: str = "local"
     storage_local_dir: str = "/tmp/ledgercopilot/uploads"
+    # GCS backend (prod). storage_gcs_bucket is required when storage_backend="gcs";
+    # credentials come from Application Default Credentials (the Cloud Run service account).
+    storage_gcs_bucket: str = ""
+    storage_gcs_prefix: str = ""
 
     # Observability.
     # Set PROMETHEUS_MULTIPROC_DIR to a shared writable directory when running

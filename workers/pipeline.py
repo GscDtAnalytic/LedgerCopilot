@@ -258,7 +258,12 @@ async def _run_pipeline(ctx: dict[str, Any], case_id: str) -> None:
             return
 
         # Read raw bytes via storage backend (local dev; GCS/S3 in prod).
-        storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+        storage = get_storage(
+            settings.storage_backend,
+            settings.storage_local_dir,
+            settings.storage_gcs_bucket,
+            settings.storage_gcs_prefix,
+        )
         content = storage.get(doc.storage_path)
 
         # Extract text with OCR if needed; annotate Document with provenance.

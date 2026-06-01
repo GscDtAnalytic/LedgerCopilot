@@ -32,6 +32,15 @@ storybook-static/
 /tmp/
 *.sqlite3
 
+# Terraform — never commit state (may hold secrets) or local vars
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+crash.log
+
 # OS / editor
 .DS_Store
 .idea/

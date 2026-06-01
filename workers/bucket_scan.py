@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 
 async def scan_bucket(ctx: dict[str, Any]) -> int:
     """Ingest any new files found in storage. Returns the count of new cases."""
-    storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+    storage = get_storage(
+        settings.storage_backend,
+        settings.storage_local_dir,
+        settings.storage_gcs_bucket,
+        settings.storage_gcs_prefix,
+    )
     try:
         paths = storage.list()
     except Exception as exc:  # storage unavailable — log and move on

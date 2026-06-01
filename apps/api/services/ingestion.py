@@ -123,7 +123,12 @@ async def ingest_document(
         storage_path = existing_storage_path
     else:
         stored_name = f"{file_hash[:8]}_{filename}"
-        storage = get_storage(settings.storage_backend, settings.storage_local_dir)
+        storage = get_storage(
+            settings.storage_backend,
+            settings.storage_local_dir,
+            settings.storage_gcs_bucket,
+            settings.storage_gcs_prefix,
+        )
         storage_path = storage.put(stored_name, content)
 
     trace_id = str(uuid.uuid4())

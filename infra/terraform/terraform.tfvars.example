@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+project_id  = "your-gcp-project-id"
+region      = "southamerica-east1"
+github_repo = "GscDtAnalytic/LedgerCopilot"
+
+# Optional overrides (defaults are sensible):
+# db_tier           = "db-g1-small"
+# redis_memory_gb   = 1
+# api_min_instances = 0
+# ai_default_model  = "claude-opus-4-8"
+# ai_fallback_model = "claude-sonnet-4-6"

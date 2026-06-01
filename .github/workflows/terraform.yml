@@ -1,0 +1,65 @@
+name: terraform
+
+# Infra governance: `plan` on every PR that touches infra/terraform (review the
+# diff before it lands), and a gated `apply` via manual dispatch. Apply uses a
+# *separate, broadly-privileged* admin identity (GCP_TF_SA) — distinct from the
+# narrow CD deployer — and is protected by the `production` environment so a human
+# approves before infra changes.
+#
+# Required GitHub variables: GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_TF_SA, TF_STATE_BUCKET
+
+on:
+  pull_request:
+    paths: ["infra/terraform/**"]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan or apply"
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+defaults:
+  run:
+    working-directory: infra/terraform
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    # apply requires human approval through the protected environment.
+    environment: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'apply') && 'production' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TF_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.7"
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.action == 'apply') }}
+        run: terraform plan -input=false -var "project_id=${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Apply
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve -var "project_id=${{ vars.GCP_PROJECT_ID }}"

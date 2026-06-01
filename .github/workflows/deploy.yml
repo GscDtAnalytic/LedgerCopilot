@@ -1,0 +1,127 @@
+name: deploy
+
+# Continuous deployment to GCP (Cloud Run). Runs after merge to the default branch
+# — branch protection should require the `ci` checks to pass before merge, so this
+# only ever rolls out already-green code.
+#
+# Auth is keyless via Workload Identity Federation (no JSON key in the repo).
+# Required GitHub *variables* (Settings → Secrets and variables → Actions → Variables):
+#   GCP_PROJECT_ID, GCP_REGION, GCP_WIF_PROVIDER, GCP_DEPLOYER_SA
+# All four are printed by `terraform output`.
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Never run two rollouts at once; a newer push supersedes an in-flight one.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for WIF OIDC token
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Image tags
+        id: tags
+        run: |
+          REPO="${REGION}-docker.pkg.dev/${PROJECT}/ledgercopilot"
+          echo "backend=${REPO}/backend:${SHA}" >> "$GITHUB_OUTPUT"
+          echo "web=${REPO}/web:${SHA}" >> "$GITHUB_OUTPUT"
+
+      # ── Backend image (API + worker share it) ───────────────────────────────
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.backend }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Database migrations (run to completion before shifting traffic) ─────
+      - name: Run migrations
+        run: |
+          gcloud run jobs deploy ledgercopilot-migrate \
+            --image "${{ steps.tags.outputs.backend }}" \
+            --region "$REGION" \
+            --command alembic --args "upgrade,head" --quiet
+          gcloud run jobs execute ledgercopilot-migrate --region "$REGION" --wait
+
+      # ── API ─────────────────────────────────────────────────────────────────
+      - name: Deploy API
+        run: |
+          gcloud run deploy ledgercopilot-api \
+            --image "${{ steps.tags.outputs.backend }}" \
+            --region "$REGION" --quiet
+
+      # ── Worker (override the start command to the arq consumer) ─────────────
+      - name: Deploy worker
+        run: |
+          gcloud run deploy ledgercopilot-worker \
+            --image "${{ steps.tags.outputs.backend }}" \
+            --region "$REGION" \
+            --command python --args "-m,workers.serve" --quiet
+
+      - name: Resolve API URL
+        id: api
+        run: |
+          URL="$(gcloud run services describe ledgercopilot-api \
+            --region "$REGION" --format='value(status.url)')"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      # ── Web image (NEXT_PUBLIC_API_URL is baked at build → needs the API URL) ─
+      - name: Build & push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.web }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ steps.api.outputs.url }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy web
+        run: |
+          gcloud run deploy ledgercopilot-web \
+            --image "${{ steps.tags.outputs.web }}" \
+            --region "$REGION" --quiet
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed ✅"
+            echo "- API: ${{ steps.api.outputs.url }}"
+            echo "- Web: $(gcloud run services describe ledgercopilot-web --region "$REGION" --format='value(status.url)')"
+            echo "- Image: \`${SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -3,7 +3,7 @@ name: ci
 # Quality gates from  A task is not done until these pass.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 jobs:

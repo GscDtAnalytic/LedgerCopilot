@@ -1,0 +1,37 @@
+# Keep the Python build context small and reproducible.
+# The web app builds from its own image (apps/web/Dockerfile).
+.git
+.github
+**/__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+dist/
+build/
+*.egg-info/
+
+# Node / frontend — not part of the Python image.
+node_modules/
+apps/web/node_modules/
+apps/web/.next/
+**/node_modules/
+
+# Local infra, data, secrets, docs that don't belong in the image.
+infra/
+eval/dataset/
+/data/
+/tmp/
+*.sqlite3
+.env
+.env.*
+*.pem
+*.md
+!README.md
+.editorconfig
+.idea/
+.vscode/
+.DS_Store
