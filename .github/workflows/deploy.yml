@@ -89,7 +89,7 @@ jobs:
           gcloud run deploy ledgercopilot-worker \
             --image "${{ steps.tags.outputs.backend }}" \
             --region "$REGION" \
-            --command python --args "-m,workers.serve" --quiet
+            --command python --args=-m,workers.serve --quiet
 
       - name: Resolve API URL
         id: api
