@@ -4,7 +4,7 @@
  * The Ready/Blocked status and per-metric warnings come from the API gate verdict
  * (GET /prompts/{id}/gate), which reuses eval.gate against the live production
  * baseline. The list does not re-derive gate thresholds (the old version gated on
- * supplier_name, which is informational —). Color is paired with text/icon
+ * supplier_name, which is informational). Color is paired with text/icon
  * (§13.1: never color alone).
  */
 

@@ -1,6 +1,6 @@
 name: ci
 
-# Quality gates from  A task is not done until these pass.
+# Quality gates. A task is not done until these pass.
 on:
   pull_request:
   # Callable as a required gate by deploy.yml (so a push to main can't deploy

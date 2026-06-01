@@ -2,8 +2,7 @@
 
 Persists the injection_suspected signal on extraction_results so a resumed pipeline
 (e.g. after a human edit sets the case back to VALIDATED) does not silently lose it.
-Before this, the resume path defaulted the flag to False — a context-propagation gap
-.
+Before this, the resume path defaulted the flag to False — a context-propagation gap.
 
 Revision ID: c4d5e6f7a8b9
 Revises: f3a4b5c6d7e8

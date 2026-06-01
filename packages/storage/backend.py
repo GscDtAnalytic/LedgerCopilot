@@ -5,7 +5,7 @@ Callers use put/get; the concrete implementation decides where bytes live
 (local filesystem in dev, GCS/S3 in prod).
 
 Design: never overwrite — the bronze immutability principle
- means every document is written once and the original
+(medallion) means every document is written once and the original
 is always retrievable for re-extraction with a better model.
 """
 

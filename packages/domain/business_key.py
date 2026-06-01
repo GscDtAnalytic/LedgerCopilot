@@ -10,9 +10,7 @@ Key format:
 Returns None when any of the three mandatory fields (CNPJ, doc number, total) is
 missing — it is safer to skip dedup than to raise a false-positive collision.
 
-Wiki: (chave natural determinística; anti-padrão de
-dedup só por hash de bytes);
-(idempotência por chave de acesso).
+Uses a deterministic natural key for dedup, not a byte-hash.
 """
 
 from __future__ import annotations

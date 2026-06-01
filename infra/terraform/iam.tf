@@ -1,5 +1,5 @@
 # Runtime service accounts — one per Cloud Run service, each scoped to the minimum
-# it needs (least privilege;). DB access is over private
+# it needs (least privilege). DB access is over private
 # IP + password, so no cloudsql.client role is granted.
 
 resource "google_service_account" "run_api" {

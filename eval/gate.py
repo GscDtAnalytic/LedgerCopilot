@@ -49,7 +49,7 @@ class MetricVerdict:
 
     `gated` distinguishes the four promotion gate rules from informational metrics
     (supplier_name_accuracy, p95_latency_ms, exact_field_accuracy) which are shown
-    but never block — see for why supplier_name is informational.
+    but never block — supplier_name is informational.
     `severity` is "good" | "warning" | "fail": a gated metric that breaches its
     threshold is "fail"; any metric that regressed without breaching is "warning".
     """
@@ -226,7 +226,7 @@ def run_gate(candidate: dict, baseline: dict) -> tuple[bool, list[str]]:
             f"  ✗ avg_cost_per_doc: {cand_cost:.6f} > {cost_threshold:.6f} (baseline x1.20)"
         )
 
-    # 3. critical_field_accuracy
+    # 3. critical_field_accuracy (total_amount, tax_id_cnpj, document_number)
     cand_cfa = candidate.get("critical_field_accuracy", 0.0)
     if cand_cfa < MIN_CRITICAL_FIELD_ACCURACY:
         violations.append(

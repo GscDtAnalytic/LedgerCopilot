@@ -35,7 +35,7 @@ class PromptVersion(Base):
     # Scorecard JSON written by eval.run (null until evaluated)
     scorecard: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Per-version generation config.
+    # Per-version generation config (wired through worker + eval).
     # All nullable: NULL means "use the standard default" so pre-existing rows keep
     # today's behaviour. Consumers coalesce via apps/api/services/prompts.
     #   model=NULL        → ai_gateway default (AI_DEFAULT_MODEL)

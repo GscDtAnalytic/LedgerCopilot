@@ -4,7 +4,7 @@ name: terraform
 # diff before it lands), and a gated `apply` via manual dispatch. Apply uses a
 # *separate, broadly-privileged* admin identity (GCP_TF_SA) — distinct from the
 # narrow CD deployer — and is protected by the `production` environment so a human
-# approves before infra changes.
+# approves before infra changes (plan/review before apply).
 #
 # Required GitHub variables: GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_TF_SA, TF_STATE_BUCKET
 

@@ -45,3 +45,9 @@ crash.log
 .DS_Store
 .idea/
 .vscode/
+
+# Local working artifacts (raw screenshots, sample docs)
+Captura de tela*.png
+nota-fiscal-exemplo.pdf
+infra/terraform/tfplan
+*.tfplan

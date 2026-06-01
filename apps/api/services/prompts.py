@@ -30,7 +30,7 @@ class PromptConfig:
 
     Built from a DB PromptVersion row, coalescing NULL columns to the standard
     defaults so a version that only sets system_text behaves exactly as before
-   . `model=None` means "use the ai_gateway default model".
+    `model=None` means "use the ai_gateway default model".
     """
 
     id: str

@@ -11,7 +11,7 @@ read it back from the same configured bucket. This mirrors LocalBackend, where t
 returned path is what callers store and later read.
 
 Bronze immutability: put() never overwrites an existing object — once the original
-bytes land, they are frozen.
+bytes land, they are frozen (medallion bronze invariant).
 """
 
 from __future__ import annotations

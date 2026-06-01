@@ -21,9 +21,8 @@ class PromptVersion:
 
 # ---------------------------------------------------------------------------
 # Extraction prompt — Phase 2
-# (Role + Safety + Multimodal + Least-to-Most
-# + CoT). The full multimodal/RAG/ToT version is the target; this is a
-# text-only Phase 2 baseline.
+# Role + Safety + Multimodal + Least-to-Most + CoT. The full multimodal/RAG/ToT
+# version is the target; this is a text-only Phase 2 baseline.
 # ---------------------------------------------------------------------------
 
 _EXTRACTION_SYSTEM_V1 = """You are the Extraction Agent of LedgerCopilot, an AI operations \

@@ -1,6 +1,6 @@
 # Private networking so Cloud Run reaches Cloud SQL and Memorystore over private
 # IP only — no database or cache is ever exposed to the public internet
-#.
+# (no publicly reachable data stores).
 
 resource "google_compute_network" "vpc" {
   name                    = "ledgercopilot-vpc"

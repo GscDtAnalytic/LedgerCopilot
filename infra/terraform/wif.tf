@@ -1,7 +1,7 @@
 # Workload Identity Federation — keyless GitHub Actions → GCP auth. No long-lived
 # JSON service-account key ever exists; GitHub's OIDC token is exchanged for a
 # short-lived GCP token, restricted to this exact repository
-#.
+# (prefer short-lived federated identity to static keys).
 
 resource "google_iam_workload_identity_pool" "github" {
   workload_identity_pool_id = "github-pool"

@@ -23,9 +23,9 @@ dependencies = [
     "python-multipart>=0.0.12",
     "anthropic>=0.40",
     "prometheus-client>=0.21",
-    #: PDF text extraction (text PDFs, no Tesseract required)
+    # PDF text extraction (text PDFs, no Tesseract required)
     "pdfplumber>=0.11",
-    #: durable HITL workflow orchestration
+    # durable HITL workflow orchestration
     "temporalio>=1.7",
     # CSV/XLSX ingestion channel
     "openpyxl>=3.1",

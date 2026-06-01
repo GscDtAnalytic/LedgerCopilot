@@ -48,7 +48,7 @@ def test_bad_candidate_is_blocked_with_reasons() -> None:
 
 
 def test_supplier_name_is_informational_not_gated() -> None:
-    """: supplier_name_accuracy must never block, even at 0%."""
+    """supplier_name_accuracy must never block, even at 0%."""
     baseline = _load("production.json")
     candidate = {**baseline, "supplier_name_accuracy": 0.0}
     verdicts = {m.key: m for m in compare_metrics(candidate, baseline)}

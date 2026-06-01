@@ -4,7 +4,7 @@
  * The verdict (which gate rules pass/fail, against the live production baseline) is
  * computed by the API (GET /prompts/{id}/gate), which reuses eval.gate. The page does
  * NOT re-implement gate thresholds — the old version did, and drifted from the real
- * gate.
+ * gate (it gated on supplier_name, which is informational).
  */
 
 import Link from "next/link";

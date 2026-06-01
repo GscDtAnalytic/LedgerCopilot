@@ -3,7 +3,7 @@
 # Division of ownership: Terraform owns the service *shape* (SA, scaling, network,
 # env, secrets). CI/CD owns the *image* (and the worker/job start command), so each
 # of those has `ignore_changes` — Terraform won't revert a `gcloud run deploy` and
-# CI won't fight Terraform (: infra as code + image rollout in
+# CI won't fight Terraform (infra as code + image rollout in
 # the pipeline). First `apply` uses var.bootstrap_image just to create the resource.
 
 locals {

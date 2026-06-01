@@ -1,5 +1,5 @@
 # LedgerCopilot — developer task runner.
-# Thin wrappers over the commands documented in  so `git log` + `make help`
+# Thin wrappers over the documented commands so `git log` + `make help`
 # stay in sync with how the project is actually run.
 
 .DEFAULT_GOAL := help

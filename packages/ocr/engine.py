@@ -1,6 +1,6 @@
 """OCR / text-extraction engine.
 
-Implements the IDP pipeline from:
+Implements the IDP pipeline:
   1. Detect document format (text/PDF/image)
   2. Extract text with the appropriate engine
   3. Attach a confidence score (0.0-1.0) and provenance label

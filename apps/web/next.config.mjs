@@ -8,8 +8,7 @@ const nextConfig = {
   // Monorepo: trace workspace files from the repo root so the standalone output
   // bundles hoisted dependencies correctly.
   outputFileTracingRoot: path.join(import.meta.dirname, "../../"),
-  // Server Components by default; Client Components only where there is interaction
-  //.
+  // Server Components by default; Client Components only where there is interaction.
   experimental: {
     typedRoutes: true,
   },
