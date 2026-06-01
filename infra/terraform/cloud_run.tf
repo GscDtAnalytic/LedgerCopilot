@@ -109,7 +109,13 @@ resource "google_cloud_run_v2_service" "api" {
     ignore_changes = [template[0].containers[0].image, client, client_version]
   }
 
-  depends_on = [google_project_service.enabled]
+  depends_on = [
+    google_project_service.enabled,
+    google_vpc_access_connector.connector,
+    google_secret_manager_secret_version.database_url,
+    google_secret_manager_secret_version.secret_key,
+    google_secret_manager_secret_iam_member.backend_secret_access,
+  ]
 }
 
 # ── Worker (arq) — always-on, CPU never throttled ────────────────────────────
@@ -180,7 +186,13 @@ resource "google_cloud_run_v2_service" "worker" {
     ]
   }
 
-  depends_on = [google_project_service.enabled]
+  depends_on = [
+    google_project_service.enabled,
+    google_vpc_access_connector.connector,
+    google_secret_manager_secret_version.database_url,
+    google_secret_manager_secret_version.secret_key,
+    google_secret_manager_secret_iam_member.backend_secret_access,
+  ]
 }
 
 # ── Web (Next.js) ────────────────────────────────────────────────────────────
@@ -216,7 +228,13 @@ resource "google_cloud_run_v2_service" "web" {
     ignore_changes = [template[0].containers[0].image, client, client_version]
   }
 
-  depends_on = [google_project_service.enabled]
+  depends_on = [
+    google_project_service.enabled,
+    google_vpc_access_connector.connector,
+    google_secret_manager_secret_version.database_url,
+    google_secret_manager_secret_version.secret_key,
+    google_secret_manager_secret_iam_member.backend_secret_access,
+  ]
 }
 
 # ── Migration job — `alembic upgrade head` run by CI before traffic shifts ────
@@ -265,7 +283,13 @@ resource "google_cloud_run_v2_job" "migrate" {
     ]
   }
 
-  depends_on = [google_project_service.enabled]
+  depends_on = [
+    google_project_service.enabled,
+    google_vpc_access_connector.connector,
+    google_secret_manager_secret_version.database_url,
+    google_secret_manager_secret_version.secret_key,
+    google_secret_manager_secret_iam_member.backend_secret_access,
+  ]
 }
 
 # ── Public access: API and Web are browser-reachable; the worker is not ───────

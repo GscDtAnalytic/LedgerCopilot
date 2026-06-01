@@ -10,7 +10,10 @@ resource "google_sql_database_instance" "main" {
   depends_on = [google_service_networking_connection.private_vpc]
 
   settings {
-    tier              = var.db_tier
+    tier = var.db_tier
+    # ENTERPRISE supports shared-core tiers (db-g1-small); ENTERPRISE_PLUS (the
+    # regional default for PG16) requires db-perf-optimized-* machines.
+    edition           = "ENTERPRISE"
     availability_type = "ZONAL"
     disk_type         = "PD_SSD"
     disk_size         = 10
