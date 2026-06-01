@@ -86,6 +86,7 @@ ignore = [
 "**/tests/**" = ["T20"]
 "apps/api/routers/**" = ["B008"]  # FastAPI Depends() in defaults is the intended pattern
 "eval/**" = ["T20"]               # eval scripts are CLIs — print to stdout/stderr is correct
+"scripts/**" = ["T20"]            # helper CLIs — print to stdout is correct
 
 # ----------------------------------------------------------------------------
 # mypy — strict in the pure packages

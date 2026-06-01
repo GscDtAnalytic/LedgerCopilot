@@ -2,9 +2,11 @@ name: ci
 
 # Quality gates from  A task is not done until these pass.
 on:
-  push:
-    branches: [main, master]
   pull_request:
+  # Callable as a required gate by deploy.yml (so a push to main can't deploy
+  # without these checks passing). Not triggered directly on push to main —
+  # deploy.yml runs it once as the `gate` job.
+  workflow_call:
 
 jobs:
   backend:

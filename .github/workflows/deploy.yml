@@ -24,7 +24,13 @@ permissions:
   id-token: write # required for WIF OIDC token
 
 jobs:
+  # Quality gate: run the same lint/type/test checks as on PRs. The deploy job
+  # below `needs` this, so a red gate blocks the rollout entirely.
+  gate:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: gate
     runs-on: ubuntu-latest
     environment: production
     env:
