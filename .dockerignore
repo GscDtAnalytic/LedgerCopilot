@@ -22,7 +22,8 @@ apps/web/.next/
 
 # Local infra, data, secrets, docs that don't belong in the image.
 infra/
-eval/dataset/
+# NOTE: eval/dataset/ IS shipped — the admin "Run eval" feature reads these golden
+# fixtures at runtime to score/gate prompt versions in production. Do not exclude.
 /data/
 /tmp/
 *.sqlite3
