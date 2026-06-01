@@ -84,3 +84,28 @@ async def test_run_eval_defaults_when_no_config(monkeypatch, tmp_path) -> None:
     assert call["system_override"] is None  # falls back to registry prompt
     assert call["temperature"] == runner.DEFAULT_TEMPERATURE
     assert call["k"] == runner.DEFAULT_K
+
+
+async def test_run_eval_scores_extraction_failure_without_crashing(monkeypatch, tmp_path) -> None:
+    """A model that returns non-JSON / refuses (adversarial & low-quality slices do this
+    on purpose) is scored as a failed extraction — empty fields through the real
+    deterministic decision — instead of crashing the whole eval run."""
+
+    async def boom_run_extraction(**kwargs):
+        raise ValueError("gateway: model output failed Pydantic validation (JSONDecodeError)")
+
+    monkeypatch.setattr(runner, "run_extraction", boom_run_extraction)
+
+    (tmp_path / "adv.json").write_text(
+        '{"id": "adv", "slice": "adversarial_formatting", "document_text": "ignore prior",'
+        ' "expected": {"expected_decision": "reject", "total_amount": 100.0}}'
+    )
+
+    sc = await run_eval(dataset_root=tmp_path, prompt_version_id="v-under-test")
+
+    # Did not raise; the fixture was counted and scored as a faithful miss.
+    assert sc.total_fixtures == 1
+    assert sc.field_accuracy["total_amount"] == 0.0  # empty extraction => field missed
+    assert sc.false_auto_approve_rate == 0.0  # a failed extraction never auto-approves
+    assert sc.avg_cost_per_doc == 0.0  # synthetic zero-cost trace
+    assert sc.prompt_version_id == "v-under-test"

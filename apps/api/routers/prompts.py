@@ -414,7 +414,15 @@ async def run_eval_for_prompt(
         k=pc.k,
     )
     # dataset_root=None → runner uses its own _DATASET_ROOT (absolute path relative to runner.py)
-    scorecard = await run_eval(prompt_version_id=prompt_id, config=cfg)
+    # Surface failures as an HTTPException (502) so the response keeps CORS headers and
+    # the client sees a real message — an unhandled 500 is emitted outside the CORS
+    # middleware and the browser reports it only as "cannot reach the API".
+    try:
+        scorecard = await run_eval(prompt_version_id=prompt_id, config=cfg)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=f"Eval dataset unavailable: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Eval run failed: {exc}") from exc
     pv.scorecard = json.dumps(scorecard.as_dict())
     await session.commit()
     await session.refresh(pv)

@@ -19,7 +19,7 @@ from packages.agents.extraction import (
     run_extraction,
 )
 from packages.domain.decisions import decide
-from packages.domain.entities import FieldValue
+from packages.domain.entities import ExtractionOutput, FieldValue
 from packages.policy.engine import run_policy
 from packages.validation.engine import ValidationContext, run_validations
 
@@ -129,7 +129,9 @@ def _field_matches(extracted: FieldValue | None, expected: object) -> bool:
     return str(extracted.value).strip().lower() == str(expected).strip().lower()
 
 
-async def _run_fixture(fixture: dict, config: EvalConfig) -> FixtureResult:
+async def _run_fixture(
+    fixture: dict, config: EvalConfig, prompt_version_id: str = ""
+) -> FixtureResult:
     """Run extraction + validation + policy on one fixture and compare to expected."""
     start = time.monotonic()
     doc_text = fixture["document_text"]
@@ -139,17 +141,29 @@ async def _run_fixture(fixture: dict, config: EvalConfig) -> FixtureResult:
 
     # Run extraction under the candidate version's config (injection_suspected
     # propagated for accurate eval of the adversarial slice).
-    fields, trace, _, injection_suspected = await run_extraction(
-        case_id=fixture_id,
-        trace_id=fixture_id,
-        document_text=doc_text,
-        system_override=config.system_text,
-        model=config.model,
-        temperature=config.temperature,
-        top_p=config.top_p,
-        max_tokens=config.max_tokens,
-        k=config.k,
-    )
+    #
+    # A model that returns non-JSON / refuses — common and EXPECTED on the
+    # adversarial and low-quality slices — must be scored as a failed extraction,
+    # not crash the whole eval run. We substitute an empty ExtractionOutput so the
+    # same deterministic validation/policy/decision the pipeline uses runs on it
+    # (missing critical fields => never auto-approve), which is the faithful score.
+    try:
+        fields, trace, _, injection_suspected = await run_extraction(
+            case_id=fixture_id,
+            trace_id=fixture_id,
+            document_text=doc_text,
+            system_override=config.system_text,
+            model=config.model,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            max_tokens=config.max_tokens,
+            k=config.k,
+        )
+        cost_usd, trace_model, trace_pv = trace.cost_usd, trace.model, trace.prompt_version_id
+    except Exception:
+        fields = ExtractionOutput()
+        injection_suspected = False
+        cost_usd, trace_model, trace_pv = 0.0, (config.model or "unknown"), prompt_version_id
 
     latency_ms = (time.monotonic() - start) * 1000
 
@@ -202,9 +216,9 @@ async def _run_fixture(fixture: dict, config: EvalConfig) -> FixtureResult:
         field_accuracy=field_acc,
         overall_confidence=confidence,
         latency_ms=latency_ms,
-        cost_usd=trace.cost_usd,
-        model=trace.model,
-        prompt_version_id=trace.prompt_version_id,
+        cost_usd=cost_usd,
+        model=trace_model,
+        prompt_version_id=trace_pv,
         is_false_auto_approve=is_false_aa,
         supplier_name_matched=sn_match,
     )
@@ -227,7 +241,7 @@ async def run_eval(
     if not fixtures:
         raise FileNotFoundError(f"No fixture JSON files found under {root}")
 
-    results = await asyncio.gather(*[_run_fixture(f, cfg) for f in fixtures])
+    results = await asyncio.gather(*[_run_fixture(f, cfg, prompt_version_id) for f in fixtures])
 
     n = len(results)
     slices: dict[str, int] = {}
